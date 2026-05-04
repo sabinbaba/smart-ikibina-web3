@@ -4,6 +4,15 @@
     "history": [
       {
         "contract": "Ikimina",
+        "address": "0x504a63D2d571A3751B5d785f992f43Dcfe11aD3C",
+        "deployer": "0x2D3C3085a3Bbd6Ca0fBf88668B188e60c2624142",
+        "txHash": "0x9e22dc4cb085b129a962b905843105655aaa7e1634dc2fc9e4653191f659210b",
+        "deployedAt": "2026-05-04T16:54:36.279Z",
+        "loanMultiplier": "3",
+        "interestBps": "500"
+      },
+      {
+        "contract": "Ikimina",
         "address": "0x8c90aF1945CAabd9575dBd68E68DFf45Cd96d189",
         "deployer": "0x2D3C3085a3Bbd6Ca0fBf88668B188e60c2624142",
         "txHash": "0x6152e6c856848214229d4b1633acd41aee5c22f970b62577a031d04d7f070e42",
@@ -23,10 +32,33 @@
     ],
     "latest": {
       "contract": "Ikimina",
-      "address": "0x8c90aF1945CAabd9575dBd68E68DFf45Cd96d189",
+      "address": "0x504a63D2d571A3751B5d785f992f43Dcfe11aD3C",
       "deployer": "0x2D3C3085a3Bbd6Ca0fBf88668B188e60c2624142",
-      "txHash": "0x6152e6c856848214229d4b1633acd41aee5c22f970b62577a031d04d7f070e42",
-      "deployedAt": "2026-05-04T15:36:47.040Z",
+      "txHash": "0x9e22dc4cb085b129a962b905843105655aaa7e1634dc2fc9e4653191f659210b",
+      "deployedAt": "2026-05-04T16:54:36.279Z",
+      "loanMultiplier": "3",
+      "interestBps": "500"
+    }
+  },
+  "localhost": {
+    "chainId": 31337,
+    "history": [
+      {
+        "contract": "Ikimina",
+        "address": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+        "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+        "txHash": "0xa642f827e94531e9068ec52658bc3e43eac22c4e71b5af58909650c8bc81541d",
+        "deployedAt": "2026-05-04T16:50:54.323Z",
+        "loanMultiplier": "3",
+        "interestBps": "500"
+      }
+    ],
+    "latest": {
+      "contract": "Ikimina",
+      "address": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+      "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+      "txHash": "0xa642f827e94531e9068ec52658bc3e43eac22c4e71b5af58909650c8bc81541d",
+      "deployedAt": "2026-05-04T16:50:54.323Z",
       "loanMultiplier": "3",
       "interestBps": "500"
     }

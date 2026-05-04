@@ -48,11 +48,12 @@ export default function App() {
   const [contractBal,  setContractBal]  = useState('0');
   const [pendingReqs,  setPendingReqs]  = useState([]);
 
-  // Form state
-  const [tab,          setTab]          = useState('savings');
+  // Navigation state
+  const [currentPage, setCurrentPage] = useState('profile');
   const [regName,      setRegName]      = useState('');
   const [regEmail,     setRegEmail]     = useState('');
   const [regPhone,     setRegPhone]     = useState('');
+  const [regWallet,    setRegWallet]    = useState('');
   const [depositAmt,   setDepositAmt]   = useState('');
   const [withdrawAmt,  setWithdrawAmt]  = useState('');
   const [loanAmt,      setLoanAmt]      = useState('');
@@ -167,10 +168,16 @@ export default function App() {
   }, [refreshAll]);
 
   // ── Transactions ──────────────────────────────────────
-  const handleRegister = () => tx(
-    async () => (await getContract(true)).register(regName, regEmail, regPhone),
-    'Registered successfully!'
-  );
+  const handleRegister = () => {
+    if (!isAdmin) {
+      show('Only admin can register members', 'error');
+      return;
+    }
+    tx(
+      async () => (await getContract(true)).register(regName, regEmail, regPhone, regWallet),
+      `Registered ${shortAddr(regWallet)} successfully!`
+    );
+  };
 
   const handleContribute = () => tx(
     async () => (await getContract(true)).contribute({ value: ethers.parseEther(depositAmt || '0') }),
@@ -242,318 +249,317 @@ export default function App() {
   }
 
   return (
-    <div className="app-container">
+    <div className="dashboard-layout">
       {/* Header */}
-      <nav className="header">
+      <header className="dashboard-header">
         <div className="header-brand">
           <h1>Ikimina</h1>
           <span>Web3 Savings</span>
         </div>
-        <div className="header-right">
+        <div className="header-actions">
           {isAdmin && <span className="admin-badge">⚙ Admin</span>}
-          <span className="network-badge">Ethereum</span>
-          <button className="btn-primary" onClick={connectWallet}>
-            {shortAddr(account)}
+          <span className="network-badge">Sepolia</span>
+          <button className="btn-primary" onClick={connectWallet} disabled={loading}>
+            {account ? shortAddr(account) : 'Connect'}
+            {loading && <span className="spinner" />}
           </button>
         </div>
-      </nav>
+      </header>
 
-      {/* Registration */}
-      {!member && (
-        <div className="register-banner">
-          <h2>Join Ikimina</h2>
-          <p>Register your wallet to start saving and accessing community loans.</p>
-          <div className="register-form">
-            <div className="input-group" style={{marginBottom:0}}>
-              <label>Full Name</label>
-              <input value={regName} onChange={e => setRegName(e.target.value)} placeholder="Amani Kalisa" />
-            </div>
-            <div className="input-group" style={{marginBottom:0}}>
-              <label>Email</label>
-              <input value={regEmail} onChange={e => setRegEmail(e.target.value)} placeholder="amani@example.com" />
-            </div>
-            <div className="input-group" style={{marginBottom:0}}>
-              <label>Phone</label>
-              <input value={regPhone} onChange={e => setRegPhone(e.target.value)} placeholder="+250 7XX XXX XXX" />
-            </div>
-            <button className="btn-primary" onClick={handleRegister} disabled={loading || !regName || !regEmail || !regPhone} style={{height:'42px', alignSelf:'flex-end'}}>
-              {loading ? <span className="spinner" /> : 'Register →'}
-            </button>
-          </div>
-        </div>
-      )}
+      <div className="dashboard-main">
+        {/* Sidebar */}
+        <aside className="dashboard-sidebar">
+          <nav className="sidebar-nav">
+            <SidebarLink href="#profile" active={currentPage === 'profile'} onClick={() => setCurrentPage('profile')}>
+              👤 Profile
+            </SidebarLink>
+            <SidebarLink href="#savings" active={currentPage === 'savings'} onClick={() => setCurrentPage('savings')}>
+              💰 Savings
+            </SidebarLink>
+            <SidebarLink href="#loans" active={currentPage === 'loans'} onClick={() => setCurrentPage('loans')}>
+              📈 Loans
+            </SidebarLink>
+            <SidebarLink href="#dividends" active={currentPage === 'dividends'} onClick={() => setCurrentPage('dividends')}>
+              📊 Dividends
+            </SidebarLink>
+            {isAdmin && (
+              <SidebarLink href="#admin" active={currentPage === 'admin'} onClick={() => setCurrentPage('admin')}>
+                ⚙ Admin
+              </SidebarLink>
+            )}
+          </nav>
+        </aside>
 
-      {/* Member Profile Card */}
-      {member && (
-        <div className="member-profile-card">
-          <div className="profile-avatar">{member.name?.charAt(0).toUpperCase()}</div>
-          <div className="profile-info">
-            <div className="profile-name">{member.name}</div>
-            <div className="profile-meta">
-              <span>✉ {member.email}</span>
-              <span>📞 {member.phone}</span>
-            </div>
-          </div>
-          <div className="profile-wallet">
-            <div className="profile-wallet-label">Wallet Address</div>
-            <div className="profile-wallet-addr">
-              <span className="wallet-full">{account}</span>
-              <button
-                className="copy-btn"
-                onClick={() => { navigator.clipboard.writeText(account); show('Address copied!', 'success'); }}
-                title="Copy address"
-              >⎘</button>
-            </div>
-            <div className="profile-joined">
-              Member since {new Date(Number(member.joinedAt) * 1000).toLocaleDateString()}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Stats */}
-      <div className="stats-grid">
-        <div className="stat-card" style={{'--accent-color':'var(--gold)'}}>
-          <div className="stat-label">My Savings</div>
-          <div className="stat-value gold">{member ? fmt(member.savings) : '—'} ETH</div>
-          <div className="stat-sub">Max loan: {maxLoan} ETH</div>
-        </div>
-        <div className="stat-card" style={{'--accent-color':'var(--green)'}}>
-          <div className="stat-label">Total Pool</div>
-          <div className="stat-value green">{totalPool} ETH</div>
-          <div className="stat-sub">Reserve: {reservePool} ETH</div>
-        </div>
-        <div className="stat-card" style={{'--accent-color':'var(--blue)'}}>
-          <div className="stat-label">Loan Status</div>
-          <div style={{marginTop:'0.4rem'}}>
-            <span className={`loan-status ${loanStatusKey}`}>
-              {LOAN_STATUS[Number(loan?.status)] || 'None'}
-            </span>
-          </div>
-          <div className="stat-sub" style={{marginTop:'0.4rem'}}>
-            {loanStatusKey === 'active' ? daysLeft(loan?.deadline) : 'No active loan'}
-          </div>
-        </div>
-        <div className="stat-card" style={{'--accent-color':'var(--amber)'}}>
-          <div className="stat-label">Pending Dividends</div>
-          <div className="stat-value amber">{member ? fmt(member.pendingDividends) : '—'} ETH</div>
-          <div className="stat-sub">Members: {memberCount}</div>
-        </div>
-      </div>
-
-      {/* Term Progress */}
-      {term && (
-        <div className="action-card" style={{marginBottom:'1.25rem'}}>
-          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.75rem'}}>
-            <span style={{fontFamily:'Syne,sans-serif', fontWeight:700, fontSize:'0.95rem'}}>Term #{fmtN(term.termId)}</span>
-            <span className={`loan-status ${term.distributed ? 'repaid' : 'active'}`}>
-              {term.distributed ? 'Distributed' : 'Active'}
-            </span>
-          </div>
-          <div className="term-bar-wrap">
-            <div className="term-bar-label">
-              <span>Progress</span>
-              <span>{termPct}%</span>
-            </div>
-            <div className="term-bar">
-              <div className="term-bar-fill" style={{width: `${termPct}%`}} />
-            </div>
-          </div>
-          <div style={{display:'flex', justifyContent:'space-between', fontSize:'0.75rem', color:'var(--text-3)'}}>
-            <span>Interest collected: {fmt(term.interestCollected)} ETH</span>
-            <span>Ends: {new Date(Number(term.endTime) * 1000).toLocaleDateString()}</span>
-          </div>
-        </div>
-      )}
-
-      {/* Tabs */}
-      {member && (
-        <>
-          <div className="tabs">
-            {['savings','loans','dividends', isAdmin && 'admin'].filter(Boolean).map(t => (
-              <button key={t} className={`tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
-                {t.charAt(0).toUpperCase() + t.slice(1)}
-              </button>
-            ))}
-          </div>
-
-          {/* ── SAVINGS TAB ── */}
-          {tab === 'savings' && (
-            <div className="actions-section">
-              <div className="action-card">
-                <h2>Add Savings</h2>
-                <p className="card-desc">Contribute ETH to the pool. Minimum 0.001 ETH. Your savings determine your loan eligibility.</p>
-                <div className="input-group">
-                  <label>Amount (ETH)</label>
-                  <input type="number" value={depositAmt} onChange={e => setDepositAmt(e.target.value)} placeholder="0.05" min="0.001" step="0.001" />
-                </div>
-                <button className="btn-full" onClick={handleContribute} disabled={loading || !depositAmt}>
-                  {loading ? <span className="spinner" /> : 'Deposit to Pool'}
-                </button>
-              </div>
-
-              <div className="action-card">
-                <h2>Withdraw Savings</h2>
-                <p className="card-desc">Withdraw your savings. Requires no active loan and sufficient pool liquidity.</p>
-                <div className="input-group">
-                  <label>Amount (ETH)</label>
-                  <input type="number" value={withdrawAmt} onChange={e => setWithdrawAmt(e.target.value)} placeholder="0.01" min="0.001" step="0.001" />
-                </div>
-                <div style={{fontSize:'0.75rem', color:'var(--text-3)', marginBottom:'0.5rem'}}>
-                  Available: {fmt(member.savings)} ETH
-                </div>
-                <button className="btn-danger"
-                  onClick={handleWithdraw}
-                  disabled={loading || !withdrawAmt || loanStatusKey === 'active'}>
-                  {loanStatusKey === 'active' ? 'Repay loan first' : loading ? <span className="spinner" /> : 'Withdraw'}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* ── LOANS TAB ── */}
-          {tab === 'loans' && (
-            <div className="actions-section">
-              <div className="action-card">
-                <h2>Request a Loan</h2>
-                <p className="card-desc">Borrow up to 3× your savings at 5% interest. Loans are subject to admin approval.</p>
-                {loanStatusKey === 'active' || loanStatusKey === 'pending' ? (
-                  <div className="loan-info">
-                    <div className="loan-info-row"><span>Principal</span><span>{fmt(loan.principal)} ETH</span></div>
-                    <div className="loan-info-row"><span>Total Owed</span><span>{fmt(loan.totalOwed)} ETH</span></div>
-                    <div className="loan-info-row"><span>Repaid</span><span>{fmt(loan.amountRepaid)} ETH</span></div>
-                    <div className="loan-info-row"><span>Remaining</span><span style={{color:'var(--red)'}}>{fmt(loan.remainingOwed)} ETH</span></div>
-                    <div className="loan-info-row"><span>Deadline</span><span>{loanStatusKey === 'active' ? daysLeft(loan.deadline) : '—'}</span></div>
-                  </div>
-                ) : (
-                  <>
-                    <div className="input-group">
-                      <label>Loan Amount (ETH)</label>
-                      <input type="number" value={loanAmt} onChange={e => setLoanAmt(e.target.value)} placeholder="0.1" min="0" step="0.001" />
+        {/* Main Content */}
+        <main className="dashboard-content">
+          {/* Profile Page */}
+          {currentPage === 'profile' && (
+            <div className="page-section">
+              <h1>Profile</h1>
+              {member && (
+                <div className="member-profile-card">
+                  <div className="profile-avatar">{member.name?.charAt(0).toUpperCase()}</div>
+                  <div className="profile-info">
+                    <div className="profile-name">{member.name}</div>
+                    <div className="profile-meta">
+                      <span>✉ {member.email}</span>
+                      <span>📞 {member.phone}</span>
                     </div>
-                    <div style={{fontSize:'0.75rem', color:'var(--text-3)', marginBottom:'0.5rem'}}>
-                      Max: {maxLoan} ETH · 5% interest · 30 days
-                    </div>
-                    <button className="btn-full" onClick={handleRequestLoan}
-                      disabled={loading || !loanAmt || parseFloat(loanAmt) > parseFloat(maxLoan)}>
-                      {loading ? <span className="spinner" /> : 'Request Loan →'}
-                    </button>
-                  </>
-                )}
-              </div>
-
-              <div className="action-card">
-                <h2>Repay Loan</h2>
-                <p className="card-desc">Make a full or partial repayment. Any overpayment is automatically refunded.</p>
-                <div className="input-group">
-                  <label>Repayment Amount (ETH)</label>
-                  <input type="number" value={repayAmt} onChange={e => setRepayAmt(e.target.value)} placeholder="0.105" min="0" step="0.001"
-                    disabled={loanStatusKey !== 'active'} />
-                </div>
-                {loanStatusKey === 'active' && (
-                  <div style={{fontSize:'0.75rem', color:'var(--text-3)', marginBottom:'0.5rem'}}>
-                    Remaining: {fmt(loan.remainingOwed)} ETH
                   </div>
-                )}
-                <button className="btn-green" onClick={handleRepay}
-                  disabled={loading || loanStatusKey !== 'active' || !repayAmt}>
-                  {loanStatusKey !== 'active' ? 'No Active Loan' : loading ? <span className="spinner" /> : 'Repay Now'}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* ── DIVIDENDS TAB ── */}
-          {tab === 'dividends' && (
-            <div className="actions-section">
-              <div className="action-card">
-                <h2>Your Dividends</h2>
-                <p className="card-desc">80% of all interest collected during a term is distributed pro-rata to members by savings balance.</p>
-                <div className="loan-info">
-                  <div className="loan-info-row"><span>Pending Dividends</span><span style={{color:'var(--amber)'}}>{fmt(member.pendingDividends)} ETH</span></div>
-                  <div className="loan-info-row"><span>Your Savings</span><span>{fmt(member.savings)} ETH</span></div>
-                  <div className="loan-info-row"><span>Pool Interest (Term)</span><span>{term ? fmt(term.interestCollected) : '—'} ETH</span></div>
-                  <div className="loan-info-row"><span>Reserve Pool</span><span>{reservePool} ETH</span></div>
-                </div>
-                <button className="btn-full" onClick={handleClaimDividends}
-                  disabled={loading || !hasDividends}>
-                  {!hasDividends ? 'No Dividends to Claim' : loading ? <span className="spinner" /> : 'Claim Dividends →'}
-                </button>
-              </div>
-
-              <div className="action-card">
-                <h2>Distribute Term Dividends</h2>
-                <p className="card-desc">Once a term ends, anyone can trigger distribution. 80% goes to members, 20% to the reserve.</p>
-                {term && (
-                  <div className="loan-info">
-                    <div className="loan-info-row"><span>Term Ends</span><span>{new Date(Number(term.endTime)*1000).toLocaleDateString()}</span></div>
-                    <div className="loan-info-row"><span>Progress</span><span>{termPct}%</span></div>
-                    <div className="loan-info-row"><span>Distributed?</span><span>{term.distributed ? '✓ Yes' : 'Not yet'}</span></div>
-                  </div>
-                )}
-                <button className="btn-full" onClick={handleDistributeDividends}
-                  disabled={loading || !term || term.distributed || termPct < 100}>
-                  {term?.distributed ? 'Already Distributed' : termPct < 100 ? `Term ${termPct}% complete` : loading ? <span className="spinner" /> : 'Distribute Dividends'}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* ── ADMIN TAB ── */}
-          {tab === 'admin' && isAdmin && (
-            <div className="admin-panel">
-              <h2>⚙ Admin Panel <span style={{fontSize:'0.75rem', color:'var(--text-3)', fontWeight:400}}>Contract: {shortAddr(CONTRACT_ADDRESS)}</span></h2>
-
-              <div className="section-header">
-                <h2 style={{fontSize:'0.9rem', color:'var(--text-2)'}}>Pending Loan Requests</h2>
-                <span style={{fontSize:'0.75rem', color:'var(--text-3)'}}>{pendingReqs.length} pending</span>
-              </div>
-
-              {pendingReqs.length === 0 ? (
-                <div className="empty-state">No pending loan requests</div>
-              ) : (
-                <div className="pending-requests">
-                  {pendingReqs.map(r => (
-                    <div key={r.id} className="request-card">
-                      <div className="request-info">
-                        <div className="request-addr">{shortAddr(r.borrower)}</div>
-                        <div className="request-amt">{fmt(r.amount)} ETH</div>
-                        <div style={{fontSize:'0.72rem', color:'var(--text-3)'}}>
-                          Req #{r.id} · {new Date(Number(r.requestedAt)*1000).toLocaleDateString()}
-                        </div>
-                      </div>
-                      <div className="request-actions">
-                        <button className="btn-approve" onClick={() => handleApproveLoan(r.id)} disabled={loading}>Approve</button>
-                        <button className="btn-reject"  onClick={() => handleRejectLoan(r.id)}  disabled={loading}>Reject</button>
-                      </div>
+                  <div className="profile-wallet">
+                    <div className="profile-wallet-label">Wallet Address</div>
+                    <div className="profile-wallet-addr">
+                      <span className="wallet-full">{account}</span>
+                      <button className="copy-btn" onClick={() => navigator.clipboard.writeText(account) && show('Copied!')} title="Copy">
+                        ⎘
+                      </button>
                     </div>
-                  ))}
+                  </div>
                 </div>
               )}
-
-              <div className="divider" />
-
-              <div className="stats-grid" style={{marginBottom:0}}>
-                <div className="stat-card">
-                  <div className="stat-label">Contract Balance</div>
-                  <div className="stat-value gold">{contractBal} ETH</div>
+              <div className="stats-grid">
+                <div className="stat-card" style={{'--accent-color': 'var(--gold)'}}>
+                  <div className="stat-label">My Savings</div>
+                  <div className="stat-value gold">{member ? fmt(member.savings) : '—'} ETH</div>
+                  <div className="stat-sub">Max loan: {maxLoan} ETH</div>
                 </div>
-                <div className="stat-card">
-                  <div className="stat-label">Total Members</div>
-                  <div className="stat-value blue">{memberCount}</div>
+                <div className="stat-card" style={{'--accent-color': 'var(--green)'}}>
+                  <div className="stat-label">Total Pool</div>
+                  <div className="stat-value green">{totalPool} ETH</div>
+                  <div className="stat-sub">Reserve: {reservePool} ETH</div>
                 </div>
-                <div className="stat-card">
-                  <div className="stat-label">Reserve Pool</div>
-                  <div className="stat-value amber">{reservePool} ETH</div>
+                <div className="stat-card" style={{'--accent-color': 'var(--blue)'}}>
+                  <div className="stat-label">Loan Status</div>
+                  <div style={{marginTop: '0.4rem'}}>
+                    <span className={`loan-status ${loanStatusKey}`}>
+                      {LOAN_STATUS[Number(loan?.status)] || 'None'}
+                    </span>
+                  </div>
+                </div>
+                <div className="stat-card" style={{'--accent-color': 'var(--amber)'}}>
+                  <div className="stat-label">Pending Dividends</div>
+                  <div className="stat-value amber">{member ? fmt(member.pendingDividends) : '—'} ETH</div>
+                  <div className="stat-sub">Members: {memberCount}</div>
                 </div>
               </div>
             </div>
           )}
-        </>
-      )}
+
+          {/* Savings Page */}
+          {currentPage === 'savings' && (
+            <div className="page-section">
+              <h1>Savings</h1>
+              {term && (
+                <div className="action-card" style={{marginBottom: '1.25rem'}}>
+                  <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem'}}>
+                    <span style={{fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: '0.95rem'}}>Term #{fmtN(term.termId)}</span>
+                    <span className={`loan-status ${term.distributed ? 'repaid' : 'active'}`}>
+                      {term.distributed ? 'Distributed' : 'Active'}
+                    </span>
+                  </div>
+                  <div className="term-bar-wrap">
+                    <div className="term-bar-label">
+                      <span>Progress</span>
+                      <span>{termPct}%</span>
+                    </div>
+                    <div className="term-bar">
+                      <div className="term-bar-fill" style={{width: `${termPct}%`}} />
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div className="actions-section">
+                <div className="action-card">
+                  <h2>Add Savings</h2>
+                  <p className="card-desc">Contribute ETH to the pool. Minimum 0.001 ETH.</p>
+                  <div className="input-group">
+                    <label>Amount (ETH)</label>
+                    <input type="number" value={depositAmt} onChange={(e) => setDepositAmt(e.target.value)} placeholder="0.05" min="0.001" step="0.001" />
+                  </div>
+                  <button className="btn-full" onClick={handleContribute} disabled={loading || !depositAmt}>
+                    {loading ? <span className="spinner" /> : 'Deposit to Pool'}
+                  </button>
+                </div>
+                <div className="action-card">
+                  <h2>Withdraw Savings</h2>
+                  <p className="card-desc">Withdraw your savings. No active loan required.</p>
+                  <div className="input-group">
+                    <label>Amount (ETH)</label>
+                    <input type="number" value={withdrawAmt} onChange={(e) => setWithdrawAmt(e.target.value)} placeholder="0.01" min="0.001" step="0.001" />
+                  </div>
+                  <div style={{fontSize: '0.75rem', color: 'var(--text-3)', marginBottom: '0.5rem'}}>
+                    Available: {fmt(member?.savings)} ETH
+                  </div>
+                  <button className="btn-danger" onClick={handleWithdraw} disabled={loading || !withdrawAmt || loanStatusKey === 'active'}>
+                    {loanStatusKey === 'active' ? 'Repay loan first' : loading ? <span className="spinner" /> : 'Withdraw'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Loans Page */}
+          {currentPage === 'loans' && (
+            <div className="page-section">
+              <h1>Loans</h1>
+              <div className="actions-section">
+                <div className="action-card">
+                  <h2>Request a Loan</h2>
+                  <p className="card-desc">Borrow up to 3× savings at 5% interest. Admin approval required.</p>
+                  {loanStatusKey === 'active' || loanStatusKey === 'pending' ? (
+                    <div className="loan-info">
+                      <div className="loan-info-row"><span>Principal</span><span>{fmt(loan.principal)} ETH</span></div>
+                      <div className="loan-info-row"><span>Total Owed</span><span>{fmt(loan.totalOwed)} ETH</span></div>
+                      <div className="loan-info-row"><span>Repaid</span><span>{fmt(loan.amountRepaid)} ETH</span></div>
+                      <div className="loan-info-row"><span>Remaining</span><span style={{color: 'var(--red)'}}>{fmt(loan.remainingOwed)} ETH</span></div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="input-group">
+                        <label>Loan Amount (ETH)</label>
+                        <input type="number" value={loanAmt} onChange={(e) => setLoanAmt(e.target.value)} placeholder="0.1" min="0" step="0.001" />
+                      </div>
+                      <div style={{fontSize: '0.75rem', color: 'var(--text-3)', marginBottom: '0.5rem'}}>
+                        Max: {maxLoan} ETH · 5% interest · 30 days
+                      </div>
+                      <button className="btn-full" onClick={handleRequestLoan} disabled={loading || !loanAmt || parseFloat(loanAmt) > parseFloat(maxLoan)}>
+                        {loading ? <span className="spinner" /> : 'Request Loan'}
+                      </button>
+                    </>
+                  )}
+                </div>
+                <div className="action-card">
+                  <h2>Repay Loan</h2>
+                  <p className="card-desc">Partial or full repayment. Overpayment refunded.</p>
+                  <div className="input-group">
+                    <label>Repayment Amount (ETH)</label>
+                    <input type="number" value={repayAmt} onChange={(e) => setRepayAmt(e.target.value)} placeholder="0.105" min="0" step="0.001" disabled={loanStatusKey !== 'active'} />
+                  </div>
+                  {loanStatusKey === 'active' && (
+                    <div style={{fontSize: '0.75rem', color: 'var(--text-3)', marginBottom: '0.5rem'}}>
+                      Remaining: {fmt(loan.remainingOwed)} ETH
+                    </div>
+                  )}
+                  <button className="btn-green" onClick={handleRepay} disabled={loading || loanStatusKey !== 'active' || !repayAmt}>
+                    {loanStatusKey !== 'active' ? 'No Active Loan' : loading ? <span className="spinner" /> : 'Repay'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Dividends Page */}
+          {currentPage === 'dividends' && (
+            <div className="page-section">
+              <h1>Dividends</h1>
+              <div className="actions-section">
+                <div className="action-card">
+                  <h2>Your Dividends</h2>
+                  <p className="card-desc">80% of term interest distributed pro-rata.</p>
+                  <div className="loan-info">
+                    <div className="loan-info-row"><span>Pending</span><span style={{color: 'var(--amber)'}}>{fmt(member.pendingDividends)} ETH</span></div>
+                    <div className="loan-info-row"><span>Savings</span><span>{fmt(member.savings)} ETH</span></div>
+                    <div className="loan-info-row"><span>Term Interest</span><span>{term ? fmt(term.interestCollected) : '—'} ETH</span></div>
+                  </div>
+                  <button className="btn-full" onClick={handleClaimDividends} disabled={loading || !hasDividends}>
+                    {!hasDividends ? 'No Dividends' : loading ? <span className="spinner" /> : 'Claim'}
+                  </button>
+                </div>
+                <div className="action-card">
+                  <h2>Distribute Dividends</h2>
+                  <p className="card-desc">Trigger distribution at term end.</p>
+                  {term && (
+                    <div className="loan-info">
+                      <div className="loan-info-row"><span>Term Ends</span><span>{new Date(Number(term.endTime) * 1000).toLocaleDateString()}</span></div>
+                      <div className="loan-info-row"><span>Progress</span><span>{termPct}%</span></div>
+                    </div>
+                  )}
+                  <button className="btn-full" onClick={handleDistributeDividends} disabled={loading || !term || term.distributed || termPct < 100}>
+                    {term?.distributed ? 'Done' : termPct < 100 ? `Term ${termPct}%` : loading ? <span className="spinner" /> : 'Distribute'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Admin Page */}
+          {currentPage === 'admin' && (
+            <div className="page-section">
+              <h1>Admin Panel</h1>
+              <div className="action-card">
+                <h2>Register Member</h2>
+                <div className="register-form">
+                  <div className="input-group">
+                    <label>Wallet Address</label>
+                    <input value={regWallet} onChange={(e) => setRegWallet(e.target.value)} placeholder="0x123..." />
+                  </div>
+                  <div className="input-group">
+                    <label>Name</label>
+                    <input value={regName} onChange={(e) => setRegName(e.target.value)} placeholder="John Doe" />
+                  </div>
+                  <div className="input-group">
+                    <label>Email</label>
+                    <input value={regEmail} onChange={(e) => setRegEmail(e.target.value)} placeholder="john@example.com" />
+                  </div>
+                  <div className="input-group">
+                    <label>Phone</label>
+                    <input value={regPhone} onChange={(e) => setRegPhone(e.target.value)} placeholder="+1 555 1234" />
+                  </div>
+                </div>
+                <button className="btn-full" onClick={handleRegister} disabled={loading || !regWallet || !regName || !regEmail || !regPhone}>
+                  {loading ? <span className="spinner" /> : 'Register'}
+                </button>
+              </div>
+              <div className="pending-requests">
+                <h2>Pending Loans ({pendingReqs.length})</h2>
+                {pendingReqs.length === 0 ? (
+                  <div className="empty-state">No pending requests</div>
+                ) : (
+                  pendingReqs.map(r => (
+                    <div key={r.id} className="request-card">
+                      <div className="request-info">
+                        <div>{shortAddr(r.borrower)}</div>
+                        <div>{fmt(r.amount)} ETH</div>
+                      </div>
+                      <div className="request-actions">
+                        <button className="btn-approve" onClick={() => handleApproveLoan(r.id)}>Approve</button>
+                        <button className="btn-reject" onClick={() => handleRejectLoan(r.id)}>Reject</button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </main>
+      </div>
+
+      {/* Footer */}
+      <footer className="dashboard-footer">
+        <div className="footer-content">
+          <span>Contract: {shortAddr(CONTRACT_ADDRESS)}</span>
+          <span>Sepolia Testnet</span>
+        </div>
+      </footer>
 
       <ToastContainer toasts={toasts} />
     </div>
+  );
+}
+
+// ── Sidebar Link Component ─────────────────────────────
+function SidebarLink({ href, active, onClick, children }) {
+  return (
+    <a 
+      href={href} 
+      className={`sidebar-link ${active ? 'active' : ''}`} 
+      onClick={(e) => {
+        e.preventDefault();
+        onClick();
+      }}
+    >
+      {children}
+    </a>
   );
 }
 

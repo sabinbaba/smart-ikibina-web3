@@ -1,8 +1,8 @@
-export const CONTRACT_ADDRESS = "0x23241639CD5885E559655a08C7882f4eA15054B8";
+export const CONTRACT_ADDRESS = "0x504a63D2d571A3751B5d785f992f43Dcfe11aD3C";
 
 export const ABI = [
   // ── Member Management ──
-  "function register(string calldata _name, string calldata _email, string calldata _phone) external",
+"function register(string calldata _name, string calldata _email, string calldata _phone, address _wallet) external",
   "function removeMember(address _wallet) external",
 
   // ── Savings ──
