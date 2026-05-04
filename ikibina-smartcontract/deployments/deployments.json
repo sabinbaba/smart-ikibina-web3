@@ -1,0 +1,34 @@
+{
+  "sepolia": {
+    "chainId": 11155111,
+    "history": [
+      {
+        "contract": "Ikimina",
+        "address": "0x8c90aF1945CAabd9575dBd68E68DFf45Cd96d189",
+        "deployer": "0x2D3C3085a3Bbd6Ca0fBf88668B188e60c2624142",
+        "txHash": "0x6152e6c856848214229d4b1633acd41aee5c22f970b62577a031d04d7f070e42",
+        "deployedAt": "2026-05-04T15:36:47.040Z",
+        "loanMultiplier": "3",
+        "interestBps": "500"
+      },
+      {
+        "contract": "Ikimina",
+        "address": "0x23241639CD5885E559655a08C7882f4eA15054B8",
+        "deployer": "0x2D3C3085a3Bbd6Ca0fBf88668B188e60c2624142",
+        "txHash": "0x32c47f0409c89911fad8f894a171908b3c0155782d6c3b93bb5486bfce330d20",
+        "deployedAt": "2026-05-04T14:09:11.241Z",
+        "loanMultiplier": "3",
+        "interestBps": "500"
+      }
+    ],
+    "latest": {
+      "contract": "Ikimina",
+      "address": "0x8c90aF1945CAabd9575dBd68E68DFf45Cd96d189",
+      "deployer": "0x2D3C3085a3Bbd6Ca0fBf88668B188e60c2624142",
+      "txHash": "0x6152e6c856848214229d4b1633acd41aee5c22f970b62577a031d04d7f070e42",
+      "deployedAt": "2026-05-04T15:36:47.040Z",
+      "loanMultiplier": "3",
+      "interestBps": "500"
+    }
+  }
+}
