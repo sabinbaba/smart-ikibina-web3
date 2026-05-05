@@ -15,7 +15,7 @@ function useToast() {
   const show = useCallback((msg, type = 'info') => {
     const id = ++_toastId;
     setToasts(t => [...t, { id, msg, type }]);
-    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 4000);
+    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 5000);
   }, []);
   return { toasts, show };
 }
@@ -77,6 +77,14 @@ export default function App() {
   const [memberCount, setMemberCount] = useState('0');
   const [contractBal, setContractBal] = useState('0');
   const [pendingReqs, setPendingReqs] = useState([]);
+  
+  // Member directory
+  const [allMembers, setAllMembers] = useState([]);
+  const [selectedMember, setSelectedMember] = useState(null);
+  const [memberSearch, setMemberSearch] = useState('');
+  const [showMemberModal, setShowMemberModal] = useState(false);
+  const [loadingMembers, setLoadingMembers] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   // Navigation state
   const [currentPage, setCurrentPage] = useState('profile');
@@ -99,7 +107,74 @@ export default function App() {
     return new ethers.Contract(CONTRACT_ADDRESS, ABI, runner);
   };
 
-  // ── FIXED: Validate RWF amount based on transaction type ──────────
+  // ── Fetch all members from contract ──────────────────
+  const fetchAllMembers = useCallback(async () => {
+    if (!account || !window.ethereum) return;
+    
+    setLoadingMembers(true);
+    try {
+      const c = await getContract();
+      
+      // Get member list from contract
+      const memberAddresses = await c.getMemberList();
+      console.log('Member addresses from contract:', memberAddresses);
+      console.log('Number of members:', memberAddresses.length);
+      
+      if (!memberAddresses || memberAddresses.length === 0) {
+        console.log('No members found in contract');
+        setAllMembers([]);
+        setLoadingMembers(false);
+        return;
+      }
+      
+      const membersData = [];
+      
+      for (const addr of memberAddresses) {
+        try {
+          const m = await c.getMember(addr);
+          console.log(`Fetching member ${addr}:`, m);
+          
+          if (m && m.isRegistered) {
+            let loanData = { status: 0, principal: 0, totalOwed: 0, amountRepaid: 0 };
+            try {
+              loanData = await c.getLoan(addr);
+            } catch (err) {
+              // No loan or error, use defaults
+            }
+            
+            membersData.push({
+              address: addr,
+              name: m.name,
+              email: m.email,
+              phone: m.phone,
+              isActive: m.isActive,
+              savings: m.savings,
+              pendingDividends: m.pendingDividends,
+              joinedAt: m.joinedAt,
+              hasActiveLoan: loanData.status === 1 || loanData.status === 2,
+              loanAmount: loanData.principal,
+              loanStatus: loanData.status,
+              loanTotalOwed: loanData.totalOwed,
+              loanAmountRepaid: loanData.amountRepaid
+            });
+          }
+        } catch (err) {
+          console.error(`Error fetching member ${addr}:`, err);
+        }
+      }
+      
+      console.log('Final members data:', membersData);
+      setAllMembers(membersData);
+      
+    } catch (err) {
+      console.error('Error fetching members:', err);
+      setAllMembers([]);
+    } finally {
+      setLoadingMembers(false);
+    }
+  }, [account, getContract]);
+
+  // ── Validate RWF amount based on transaction type ──────────
   const validateRwfAmount = (amount, type = 'deposit') => {
     const numAmount = parseFloat(amount);
     if (isNaN(numAmount) || numAmount <= 0) {
@@ -128,7 +203,6 @@ export default function App() {
       if (loanStatusKey !== 'active') {
         return { valid: false, error: 'No active loan to repay' };
       }
-      // Check if amount exceeds remaining loan
       if (loan && loanStatusKey === 'active') {
         const remainingWei = BigInt(loan.remainingOwed);
         const remainingRwf = Number(remainingWei / WEI_PER_RWF);
@@ -214,7 +288,6 @@ export default function App() {
       const c = await getContract();
       const provider = getProvider();
       
-      // Get ETH balance
       const balance = await provider.getBalance(wallet);
       setEthBalance(ethers.formatEther(balance));
 
@@ -262,10 +335,14 @@ export default function App() {
         }
         setPendingReqs(reqs);
       }
+      
+      // Fetch all members after getting contract data
+      await fetchAllMembers();
+      
     } catch (e) {
       console.error('refreshAll error:', e);
     }
-  }, [account]);
+  }, [account, fetchAllMembers]);
 
   // ── Connect Wallet ────────────────────────────────────
   const connectWallet = async () => {
@@ -282,6 +359,21 @@ export default function App() {
       console.error(e);
     }
   };
+
+  // Auto-refresh when page becomes visible
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && account) {
+        fetchAllMembers();
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [account, fetchAllMembers]);
 
   useEffect(() => {
     if (!window.ethereum) return;
@@ -305,6 +397,10 @@ export default function App() {
       async () => (await getContract(true)).register(regName, regEmail, regPhone, regWallet),
       `Registered ${shortAddr(regWallet)} successfully!`
     );
+    setRegName('');
+    setRegEmail('');
+    setRegPhone('');
+    setRegWallet('');
   };
 
   const handleContribute = () => {
@@ -388,8 +484,19 @@ export default function App() {
     async () => (await getContract(true)).rejectLoan(id),
     `Loan #${id} rejected.`
   );
+  
+  const handleViewMember = (memberData) => {
+    setSelectedMember(memberData);
+    setShowMemberModal(true);
+  };
+  
+  const handleRefreshMembers = async () => {
+    setRefreshKey(prev => prev + 1);
+    await fetchAllMembers();
+    show('Member list refreshed!', 'success');
+  };
 
-  // ── Derived Values - Using Integer Math ──────────────────
+  // ── Derived Values ──────────────────────────────────
   const loanStatusKey = loan ? LOAN_STATUS[Number(loan.status)]?.toLowerCase() : 'none';
   
   const getSavingsRwf = () => {
@@ -433,6 +540,14 @@ export default function App() {
   const hasDividends = member && member.pendingDividends && BigInt(member.pendingDividends) > 0n;
   const termPct = term ? termProgress(term.startTime, term.endTime) : 0;
   const minContributionRwf = Math.ceil(0.001 * ETH_RWF_RATE);
+  
+  // Filter members for search
+  const filteredMembers = allMembers.filter(m => 
+    m.name.toLowerCase().includes(memberSearch.toLowerCase()) ||
+    m.email.toLowerCase().includes(memberSearch.toLowerCase()) ||
+    m.phone.includes(memberSearch) ||
+    shortAddr(m.address).toLowerCase().includes(memberSearch.toLowerCase())
+  );
 
   // ── Render ────────────────────────────────────────────
   if (!account) {
@@ -487,7 +602,11 @@ export default function App() {
         <aside className="dashboard-sidebar">
           <nav className="sidebar-nav">
             <SidebarLink href="#profile" active={currentPage === 'profile'} onClick={() => setCurrentPage('profile')}>
-              👤 Profile
+              👤 My Profile
+            </SidebarLink>
+            <SidebarLink href="#members" active={currentPage === 'members'} onClick={() => setCurrentPage('members')}>
+              👥 Member Directory
+              {allMembers.length > 0 && <span className="nav-badge">{allMembers.length}</span>}
             </SidebarLink>
             <SidebarLink href="#savings" active={currentPage === 'savings'} onClick={() => setCurrentPage('savings')}>
               💰 Savings
@@ -511,61 +630,234 @@ export default function App() {
           {/* Profile Page */}
           {currentPage === 'profile' && (
             <div className="page-section">
-              <h1>Profile</h1>
-              {member && (
-                <div className="member-profile-card">
-                  <div className="profile-avatar">{member.name?.charAt(0).toUpperCase()}</div>
-                  <div className="profile-info">
-                    <div className="profile-name">{member.name}</div>
-                    <div className="profile-meta">
-                      <span>✉ {member.email}</span>
-                      <span>📞 {member.phone}</span>
+              <h1>My Profile</h1>
+              {member ? (
+                <>
+                  <div className="member-profile-card">
+                    <div className="profile-avatar">{member.name?.charAt(0).toUpperCase()}</div>
+                    <div className="profile-info">
+                      <div className="profile-name">{member.name}</div>
+                      <div className="profile-meta">
+                        <span>✉ {member.email}</span>
+                        <span>📞 {member.phone}</span>
+                        <span>🆔 {shortAddr(account)}</span>
+                      </div>
+                      <div className="profile-stats">
+                        <span>📅 Joined: {new Date(Number(member.joinedAt) * 1000).toLocaleDateString()}</span>
+                        <span>✅ Status: {member.isActive ? 'Active' : 'Inactive'}</span>
+                      </div>
+                    </div>
+                    <div className="profile-wallet">
+                      <div className="profile-wallet-label">Wallet Address</div>
+                      <div className="profile-wallet-addr">
+                        <span className="wallet-full">{account}</span>
+                        <button className="copy-btn" onClick={() => {
+                          navigator.clipboard.writeText(account);
+                          show('Copied!', 'success');
+                        }} title="Copy">
+                          ⎘
+                        </button>
+                      </div>
                     </div>
                   </div>
-                  <div className="profile-wallet">
-                    <div className="profile-wallet-label">Wallet Address</div>
-                    <div className="profile-wallet-addr">
-                      <span className="wallet-full">{account}</span>
-                      <button className="copy-btn" onClick={() => {
-                        navigator.clipboard.writeText(account);
-                        show('Copied!', 'success');
-                      }} title="Copy">
-                        ⎘
-                      </button>
+                  <div className="exchange-rate-banner">
+                    💱 Fixed Exchange Rate: 1 ETH = {ETH_RWF_RATE.toLocaleString()} RWF
+                    <span className="rate-note">(No rounding discrepancies - exact values)</span>
+                  </div>
+                  <div className="stats-grid">
+                    <div className="stat-card" style={{ '--accent-color': 'var(--gold)' }}>
+                      <div className="stat-label">My Savings</div>
+                      <div className="stat-value gold">{getSavingsRwf()} RWF</div>
+                      <div className="stat-sub">≈ {member ? fmtETH(member.savings) : '0'} ETH</div>
+                      <div className="stat-sub">Max loan: {getMaxLoanRwf()} RWF</div>
+                    </div>
+                    <div className="stat-card" style={{ '--accent-color': 'var(--green)' }}>
+                      <div className="stat-label">Total Pool</div>
+                      <div className="stat-value green">{getTotalPoolRwf()} RWF</div>
+                      <div className="stat-sub">≈ {totalPool} ETH</div>
+                      <div className="stat-sub">Reserve: {getReservePoolRwf()} RWF</div>
+                    </div>
+                    <div className="stat-card" style={{ '--accent-color': 'var(--blue)' }}>
+                      <div className="stat-label">Loan Status</div>
+                      <div style={{ marginTop: '0.4rem' }}>
+                        <span className={`loan-status ${loanStatusKey}`}>
+                          {loan && LOAN_STATUS[Number(loan.status)] ? LOAN_STATUS[Number(loan.status)] : 'None'}
+                        </span>
+                      </div>
+                      {loanStatusKey === 'active' && (
+                        <div className="stat-sub">Due: {new Date(Number(loan.deadline) * 1000).toLocaleDateString()}</div>
+                      )}
+                    </div>
+                    <div className="stat-card" style={{ '--accent-color': 'var(--amber)' }}>
+                      <div className="stat-label">Pending Dividends</div>
+                      <div className="stat-value amber">{getPendingDividendsRwf()} RWF</div>
+                      <div className="stat-sub">≈ {member ? fmtETH(member.pendingDividends) : '0'} ETH</div>
+                      <div className="stat-sub">Members: {memberCount}</div>
                     </div>
                   </div>
+                </>
+              ) : (
+                <div className="empty-state">
+                  <p>You are not registered as a member yet.</p>
+                  <p>Please contact the admin to register you.</p>
                 </div>
               )}
-              <div className="exchange-rate-banner">
-                💱 Fixed Exchange Rate: 1 ETH = {ETH_RWF_RATE.toLocaleString()} RWF
-                <span className="rate-note">(No rounding discrepancies - exact values)</span>
+            </div>
+          )}
+
+          {/* Member Directory Page */}
+          {currentPage === 'members' && (
+            <div className="page-section">
+              <div className="member-directory-header">
+                <h1>Member Directory</h1>
+                <button 
+                  className="btn-refresh" 
+                  onClick={handleRefreshMembers}
+                  disabled={loadingMembers}
+                >
+                  {loadingMembers ? '⟳ Loading...' : '🔄 Refresh'}
+                </button>
               </div>
-              <div className="stats-grid">
-                <div className="stat-card" style={{ '--accent-color': 'var(--gold)' }}>
-                  <div className="stat-label">My Savings</div>
-                  <div className="stat-value gold">{getSavingsRwf()} RWF</div>
-                  <div className="stat-sub">≈ {member ? fmtETH(member.savings) : '0'} ETH</div>
-                  <div className="stat-sub">Max loan: {getMaxLoanRwf()} RWF</div>
+              
+              <div className="member-directory-controls">
+                <div className="search-bar">
+                  <input 
+                    type="text" 
+                    placeholder="Search by name, email, phone, or address..." 
+                    value={memberSearch}
+                    onChange={(e) => setMemberSearch(e.target.value)}
+                  />
                 </div>
-                <div className="stat-card" style={{ '--accent-color': 'var(--green)' }}>
-                  <div className="stat-label">Total Pool</div>
-                  <div className="stat-value green">{getTotalPoolRwf()} RWF</div>
-                  <div className="stat-sub">≈ {totalPool} ETH</div>
-                  <div className="stat-sub">Reserve: {getReservePoolRwf()} RWF</div>
+                <div className="directory-stats">
+                  Total Members: {allMembers.length} | Active: {allMembers.filter(m => m.isActive).length}
                 </div>
-                <div className="stat-card" style={{ '--accent-color': 'var(--blue)' }}>
-                  <div className="stat-label">Loan Status</div>
-                  <div style={{ marginTop: '0.4rem' }}>
-                    <span className={`loan-status ${loanStatusKey}`}>
-                      {loan && LOAN_STATUS[Number(loan.status)] ? LOAN_STATUS[Number(loan.status)] : 'None'}
-                    </span>
+              </div>
+              
+              {loadingMembers ? (
+                <div className="loading-state">
+                  <div className="spinner-large"></div>
+                  <p>Loading members from blockchain...</p>
+                </div>
+              ) : allMembers.length === 0 ? (
+                <div className="empty-state">
+                  <p>No members found in directory.</p>
+                  {isAdmin ? (
+                    <>
+                      <p>Use the Admin panel below to register members.</p>
+                      <button 
+                        className="btn-primary" 
+                        onClick={() => setCurrentPage('admin')}
+                        style={{ marginTop: '1rem', width: 'auto' }}
+                      >
+                        Go to Admin Panel
+                      </button>
+                    </>
+                  ) : (
+                    <p>Ask the admin to register members.</p>
+                  )}
+                </div>
+              ) : (
+                <div className="members-grid">
+                  {filteredMembers.map((m, idx) => (
+                    <div key={idx} className="member-card" onClick={() => handleViewMember(m)}>
+                      <div className="member-avatar">{m.name.charAt(0).toUpperCase()}</div>
+                      <div className="member-info">
+                        <div className="member-name">{m.name}</div>
+                        <div className="member-details">
+                          <span>📧 {m.email}</span>
+                          <span>📞 {m.phone}</span>
+                        </div>
+                        <div className="member-address">{shortAddr(m.address)}</div>
+                        <div className="member-stats">
+                          <span>💰 {fmtRWFDisplay(m.savings)} RWF</span>
+                          {m.hasActiveLoan && <span className="loan-badge">Active Loan</span>}
+                          {!m.isActive && <span className="inactive-badge">Inactive</span>}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Member Detail Modal */}
+          {showMemberModal && selectedMember && (
+            <div className="modal-overlay" onClick={() => setShowMemberModal(false)}>
+              <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                <div className="modal-header">
+                  <h2>Member Details</h2>
+                  <button className="modal-close" onClick={() => setShowMemberModal(false)}>✕</button>
+                </div>
+                <div className="modal-body">
+                  <div className="member-detail-header">
+                    <div className="detail-avatar">{selectedMember.name.charAt(0).toUpperCase()}</div>
+                    <div className="detail-info">
+                      <h3>{selectedMember.name}</h3>
+                      <p>📧 {selectedMember.email}</p>
+                      <p>📞 {selectedMember.phone}</p>
+                    </div>
                   </div>
-                </div>
-                <div className="stat-card" style={{ '--accent-color': 'var(--amber)' }}>
-                  <div className="stat-label">Pending Dividends</div>
-                  <div className="stat-value amber">{getPendingDividendsRwf()} RWF</div>
-                  <div className="stat-sub">≈ {member ? fmtETH(member.pendingDividends) : '0'} ETH</div>
-                  <div className="stat-sub">Members: {memberCount}</div>
+                  
+                  <div className="detail-section">
+                    <h4>Wallet Information</h4>
+                    <div className="detail-row">
+                      <span>Address:</span>
+                      <code>{selectedMember.address}</code>
+                      <button className="copy-btn-small" onClick={() => {
+                        navigator.clipboard.writeText(selectedMember.address);
+                        show('Copied!', 'success');
+                      }}>Copy</button>
+                    </div>
+                  </div>
+                  
+                  <div className="detail-section">
+                    <h4>Financial Summary</h4>
+                    <div className="stats-mini-grid">
+                      <div className="stat-mini">
+                        <label>Savings</label>
+                        <value>{fmtRWFDisplay(selectedMember.savings)} RWF</value>
+                      </div>
+                      <div className="stat-mini">
+                        <label>Pending Dividends</label>
+                        <value>{fmtRWFDisplay(selectedMember.pendingDividends)} RWF</value>
+                      </div>
+                      <div className="stat-mini">
+                        <label>Status</label>
+                        <value className={selectedMember.isActive ? 'active' : 'inactive'}>
+                          {selectedMember.isActive ? 'Active' : 'Inactive'}
+                        </value>
+                      </div>
+                      <div className="stat-mini">
+                        <label>Joined</label>
+                        <value>{new Date(Number(selectedMember.joinedAt) * 1000).toLocaleDateString()}</value>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {selectedMember.hasActiveLoan && (
+                    <div className="detail-section">
+                      <h4>Loan Information</h4>
+                      <div className="detail-row">
+                        <span>Loan Amount:</span>
+                        <strong>{fmtRWFDisplay(selectedMember.loanAmount)} RWF</strong>
+                      </div>
+                      <div className="detail-row">
+                        <span>Total Owed:</span>
+                        <strong>{fmtRWFDisplay(selectedMember.loanTotalOwed)} RWF</strong>
+                      </div>
+                      <div className="detail-row">
+                        <span>Repaid:</span>
+                        <strong>{fmtRWFDisplay(selectedMember.loanAmountRepaid)} RWF</strong>
+                      </div>
+                      <div className="detail-row">
+                        <span>Status:</span>
+                        <span className={`loan-status ${selectedMember.loanStatus === 2 ? 'active' : 'pending'}`}>
+                          {selectedMember.loanStatus === 2 ? 'Active' : 'Pending'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -662,6 +954,9 @@ export default function App() {
                       <div className="loan-info-row"><span>Total Owed</span><span>{loan ? fmtRWFDisplay(loan.totalOwed) : '0'} RWF</span></div>
                       <div className="loan-info-row"><span>Repaid</span><span>{loan ? fmtRWFDisplay(loan.amountRepaid) : '0'} RWF</span></div>
                       <div className="loan-info-row"><span>Remaining</span><span style={{ color: 'var(--red)' }}>{getLoanRemainingRwf()} RWF</span></div>
+                      {loanStatusKey === 'active' && (
+                        <div className="loan-info-row"><span>Deadline</span><span>{new Date(Number(loan.deadline) * 1000).toLocaleDateString()}</span></div>
+                      )}
                     </div>
                   ) : (
                     <>
@@ -762,22 +1057,22 @@ export default function App() {
             <div className="page-section">
               <h1>Admin Panel</h1>
               <div className="action-card">
-                <h2>Register Member</h2>
+                <h2>Register New Member</h2>
                 <div className="register-form">
                   <div className="input-group">
                     <label>Wallet Address</label>
                     <input value={regWallet} onChange={(e) => setRegWallet(e.target.value)} placeholder="0x123..." />
                   </div>
                   <div className="input-group">
-                    <label>Name</label>
+                    <label>Full Name</label>
                     <input value={regName} onChange={(e) => setRegName(e.target.value)} placeholder="John Doe" />
                   </div>
                   <div className="input-group">
-                    <label>Email</label>
+                    <label>Email Address</label>
                     <input value={regEmail} onChange={(e) => setRegEmail(e.target.value)} placeholder="john@example.com" />
                   </div>
                   <div className="input-group">
-                    <label>Phone</label>
+                    <label>Phone Number</label>
                     <input value={regPhone} onChange={(e) => setRegPhone(e.target.value)} placeholder="+250 788 123 456" />
                   </div>
                 </div>
@@ -785,23 +1080,31 @@ export default function App() {
                   {loading ? <span className="spinner">⟳</span> : 'Register Member'}
                 </button>
               </div>
+              
               <div className="pending-requests">
-                <h2>Pending Loans ({pendingReqs.length})</h2>
+                <h2>Pending Loan Requests ({pendingReqs.length})</h2>
                 {pendingReqs.length === 0 ? (
                   <div className="empty-state">No pending requests</div>
                 ) : (
-                  pendingReqs.map(r => (
-                    <div key={r.id} className="request-card">
-                      <div className="request-info">
-                        <div>{shortAddr(r.borrower)}</div>
-                        <div>{fmtRWFDisplay(r.amount)} RWF</div>
+                  pendingReqs.map(r => {
+                    const memberInfo = allMembers.find(m => m.address.toLowerCase() === r.borrower?.toLowerCase());
+                    return (
+                      <div key={r.id} className="request-card">
+                        <div className="request-info">
+                          <div className="request-borrower">
+                            <strong>{memberInfo?.name || shortAddr(r.borrower)}</strong>
+                            <small>{shortAddr(r.borrower)}</small>
+                          </div>
+                          <div className="request-amount">{fmtRWFDisplay(r.amount)} RWF</div>
+                          <div className="request-date">{new Date(Number(r.requestedAt) * 1000).toLocaleString()}</div>
+                        </div>
+                        <div className="request-actions">
+                          <button className="btn-approve" onClick={() => handleApproveLoan(r.id)}>✓ Approve</button>
+                          <button className="btn-reject" onClick={() => handleRejectLoan(r.id)}>✕ Reject</button>
+                        </div>
                       </div>
-                      <div className="request-actions">
-                        <button className="btn-approve" onClick={() => handleApproveLoan(r.id)}>Approve</button>
-                        <button className="btn-reject" onClick={() => handleRejectLoan(r.id)}>Reject</button>
-                      </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -815,6 +1118,7 @@ export default function App() {
           <span>Contract: {shortAddr(CONTRACT_ADDRESS)}</span>
           <span>Sepolia Testnet</span>
           <span>💱 1 ETH = {ETH_RWF_RATE.toLocaleString()} RWF (Fixed)</span>
+          <span>👥 {memberCount} Members</span>
         </div>
       </footer>
 
