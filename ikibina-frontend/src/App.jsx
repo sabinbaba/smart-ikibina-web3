@@ -3,6 +3,11 @@ import { ethers } from 'ethers';
 import { CONTRACT_ADDRESS, ABI, LOAN_STATUS } from './contracts/config';
 import './App.css';
 
+// ── Constants - Using Integer Math for Perfect Precision ──
+const ETH_RWF_RATE = 8500000; // 1 ETH = 8,500,000 RWF
+const WEI_PER_ETH = 1000000000000000000n; // 10^18
+const WEI_PER_RWF = WEI_PER_ETH / BigInt(ETH_RWF_RATE); // 117647058823529 wei per RWF
+
 // ── Toast helper ──────────────────────────────────────
 let _toastId = 0;
 function useToast() {
@@ -15,14 +20,38 @@ function useToast() {
   return { toasts, show };
 }
 
-// ── Utilities ─────────────────────────────────────────
-const fmt  = (wei)  => parseFloat(ethers.formatEther(wei || 0)).toFixed(4);
-const fmtN = (n)    => Number(n || 0).toString();
-const shortAddr = (a) => a ? `${a.slice(0, 6)}…${a.slice(-4)}` : '';
-const daysLeft = (deadline) => {
-  const d = Math.ceil((Number(deadline) * 1000 - Date.now()) / 86400000);
-  return d > 0 ? `${d}d left` : 'Overdue';
+// ── Utilities - NO FLOATING POINT DISCREPANCIES ──────────
+const fmtETH = (wei) => {
+  if (!wei) return '0';
+  return (Number(wei) / Number(WEI_PER_ETH)).toFixed(8);
 };
+
+const fmtRWF = (wei) => {
+  if (!wei) return '0';
+  const weiBig = BigInt(wei);
+  const rwf = weiBig / WEI_PER_RWF;
+  return rwf.toString();
+};
+
+const fmtRWFDisplay = (wei) => {
+  if (!wei) return '0';
+  const weiBig = BigInt(wei);
+  const rwf = weiBig / WEI_PER_RWF;
+  return Number(rwf).toLocaleString();
+};
+
+const rwfToWei = (rwfAmount) => {
+  if (!rwfAmount || parseFloat(rwfAmount) <= 0) return 0n;
+  const rwf = BigInt(Math.floor(parseFloat(rwfAmount)));
+  return rwf * WEI_PER_RWF;
+};
+
+const rwfToEthString = (rwfAmount) => {
+  const wei = rwfToWei(rwfAmount);
+  return (Number(wei) / Number(WEI_PER_ETH)).toFixed(10);
+};
+
+const shortAddr = (a) => a ? `${a.slice(0, 6)}…${a.slice(-4)}` : '';
 const termProgress = (start, end) => {
   const now = Date.now() / 1000;
   const pct = Math.min(100, ((now - Number(start)) / (Number(end) - Number(start))) * 100);
@@ -34,57 +63,144 @@ export default function App() {
   const { toasts, show } = useToast();
 
   // Wallet
-  const [account,   setAccount]   = useState(null);
-  const [isAdmin,   setIsAdmin]   = useState(false);
-  const [loading,   setLoading]   = useState(false);
+  const [account, setAccount] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [ethBalance, setEthBalance] = useState('0');
 
   // Contract data
-  const [member,       setMember]       = useState(null);
-  const [loan,         setLoan]         = useState(null);
-  const [term,         setTerm]         = useState(null);
-  const [totalPool,    setTotalPool]    = useState('0');
-  const [reservePool,  setReservePool]  = useState('0');
-  const [memberCount,  setMemberCount]  = useState('0');
-  const [contractBal,  setContractBal]  = useState('0');
-  const [pendingReqs,  setPendingReqs]  = useState([]);
+  const [member, setMember] = useState(null);
+  const [loan, setLoan] = useState(null);
+  const [term, setTerm] = useState(null);
+  const [totalPool, setTotalPool] = useState('0');
+  const [reservePool, setReservePool] = useState('0');
+  const [memberCount, setMemberCount] = useState('0');
+  const [contractBal, setContractBal] = useState('0');
+  const [pendingReqs, setPendingReqs] = useState([]);
 
   // Navigation state
   const [currentPage, setCurrentPage] = useState('profile');
-  const [regName,      setRegName]      = useState('');
-  const [regEmail,     setRegEmail]     = useState('');
-  const [regPhone,     setRegPhone]     = useState('');
-  const [regWallet,    setRegWallet]    = useState('');
-  const [depositAmt,   setDepositAmt]   = useState('');
-  const [withdrawAmt,  setWithdrawAmt]  = useState('');
-  const [loanAmt,      setLoanAmt]      = useState('');
-  const [repayAmt,     setRepayAmt]     = useState('');
+  const [regName, setRegName] = useState('');
+  const [regEmail, setRegEmail] = useState('');
+  const [regPhone, setRegPhone] = useState('');
+  const [regWallet, setRegWallet] = useState('');
+  
+  // RWF denominated amounts
+  const [depositRwf, setDepositRwf] = useState('');
+  const [withdrawRwf, setWithdrawRwf] = useState('');
+  const [loanRwf, setLoanRwf] = useState('');
+  const [repayRwf, setRepayRwf] = useState('');
 
   // ── Helpers ──────────────────────────────────────────
   const getProvider = () => new ethers.BrowserProvider(window.ethereum);
   const getContract = async (write = false) => {
     const provider = getProvider();
-    const runner   = write ? await provider.getSigner() : provider;
+    const runner = write ? await provider.getSigner() : provider;
     return new ethers.Contract(CONTRACT_ADDRESS, ABI, runner);
   };
 
-  const tx = async (fn, successMsg) => {
+  // ── FIXED: Validate RWF amount based on transaction type ──────────
+  const validateRwfAmount = (amount, type = 'deposit') => {
+    const numAmount = parseFloat(amount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      return { valid: false, error: 'Please enter a valid amount in RWF' };
+    }
+    
+    const weiAmount = rwfToWei(amount);
+    const ethAmount = Number(weiAmount) / Number(WEI_PER_ETH);
+    const minEth = 0.001;
+    const minRwf = Math.ceil(minEth * ETH_RWF_RATE);
+    
+    // DEPOSIT / CONTRIBUTION - minimum check applies
+    if (type === 'deposit') {
+      if (ethAmount < minEth - 0.0000001) {
+        return { 
+          valid: false, 
+          error: `Minimum contribution is ${minRwf.toLocaleString()} RWF` 
+        };
+      }
+      return { valid: true, rwf: numAmount, wei: weiAmount, eth: ethAmount };
+    }
+    
+    // REPAY - no minimum, but must have active loan
+    if (type === 'repay') {
+      const loanStatusKey = loan ? LOAN_STATUS[Number(loan.status)]?.toLowerCase() : 'none';
+      if (loanStatusKey !== 'active') {
+        return { valid: false, error: 'No active loan to repay' };
+      }
+      // Check if amount exceeds remaining loan
+      if (loan && loanStatusKey === 'active') {
+        const remainingWei = BigInt(loan.remainingOwed);
+        const remainingRwf = Number(remainingWei / WEI_PER_RWF);
+        if (numAmount > remainingRwf) {
+          return { 
+            valid: false, 
+            error: `Amount exceeds remaining loan of ${remainingRwf.toLocaleString()} RWF` 
+          };
+        }
+      }
+      return { valid: true, rwf: numAmount, wei: weiAmount, eth: ethAmount };
+    }
+    
+    // WITHDRAW - must have sufficient balance
+    if (type === 'withdraw') {
+      if (!member) {
+        return { valid: false, error: 'Not a registered member' };
+      }
+      const savingsWei = BigInt(member.savings);
+      if (weiAmount > savingsWei) {
+        return { valid: false, error: 'Insufficient savings balance' };
+      }
+      const loanStatusKey = loan ? LOAN_STATUS[Number(loan.status)]?.toLowerCase() : 'none';
+      if (loanStatusKey === 'active') {
+        return { valid: false, error: 'Repay active loan first before withdrawing' };
+      }
+      return { valid: true, rwf: numAmount, wei: weiAmount, eth: ethAmount };
+    }
+    
+    // LOAN REQUEST - must be within limit
+    if (type === 'loan') {
+      if (!member) {
+        return { valid: false, error: 'Not a registered member' };
+      }
+      const maxLoanWei = BigInt(member.savings) * 3n;
+      if (weiAmount > maxLoanWei) {
+        const maxLoanRwf = Number(maxLoanWei / WEI_PER_RWF);
+        return { valid: false, error: `Maximum loan is ${maxLoanRwf.toLocaleString()} RWF` };
+      }
+      const loanStatusKey = loan ? LOAN_STATUS[Number(loan.status)]?.toLowerCase() : 'none';
+      if (loanStatusKey === 'active' || loanStatusKey === 'pending') {
+        return { valid: false, error: 'You already have an active or pending loan' };
+      }
+      return { valid: true, rwf: numAmount, wei: weiAmount, eth: ethAmount };
+    }
+    
+    return { valid: false, error: 'Invalid transaction type' };
+  };
+
+  const tx = async (fn, successMsg, valueWei = null) => {
     setLoading(true);
     try {
-      const t = await fn();
+      let txPromise;
+      if (valueWei !== null) {
+        txPromise = fn(valueWei);
+      } else {
+        txPromise = fn();
+      }
+      
+      const t = await txPromise;
       show('Transaction sent — waiting…', 'info');
       await t.wait();
       show(successMsg, 'success');
-      // pass account explicitly so refreshAll doesn't rely on stale closure
       await refreshAll(account);
     } catch (e) {
-      // parse the revert reason cleanly
-      const reason =
-        e.reason ||
+      const reason = e.reason ||
         e.error?.message ||
         e.message?.match(/execution reverted: (.+?)"/)?.[1] ||
         e.message?.slice(0, 160) ||
         'Transaction failed';
       show(reason, 'error');
+      console.error('Transaction error:', e);
     } finally {
       setLoading(false);
     }
@@ -96,8 +212,12 @@ export default function App() {
     if (!wallet || !window.ethereum) return;
     try {
       const c = await getContract();
+      const provider = getProvider();
+      
+      // Get ETH balance
+      const balance = await provider.getBalance(wallet);
+      setEthBalance(ethers.formatEther(balance));
 
-      // 1. Public / view-only calls — safe for anyone
       const [adminAddr, pool, reserve, mCount, bal, termData] = await Promise.all([
         c.admin(),
         c.totalPool(),
@@ -107,41 +227,41 @@ export default function App() {
         c.getCurrentTerm(),
       ]);
 
-      setIsAdmin(adminAddr.toLowerCase() === wallet.toLowerCase());
-      setTotalPool(fmt(pool));
-      setReservePool(fmt(reserve));
-      setMemberCount(fmtN(mCount));
-      setContractBal(fmt(bal));
+      setIsAdmin(adminAddr && adminAddr.toLowerCase() === wallet.toLowerCase());
+      setTotalPool(fmtETH(pool));
+      setReservePool(fmtETH(reserve));
+      setMemberCount(Number(mCount).toString());
+      setContractBal(fmtETH(bal));
       setTerm(termData);
 
-      // 2. getMember is safe for everyone — returns empty struct if not registered
       const m = await c.getMember(wallet);
-      const registered = m.isRegistered && m.isActive;
+      const registered = m && m.isRegistered && m.isActive;
       setMember(registered ? m : null);
 
-      // 3. getLoan — only call if the wallet is a registered active member
-      //    (the contract modifier onlyMember will revert otherwise)
       if (registered) {
-        const l = await c.getLoan(wallet);
-        setLoan(l);
+        try {
+          const l = await c.getLoan(wallet);
+          setLoan(l);
+        } catch (err) {
+          setLoan(null);
+        }
       } else {
         setLoan(null);
       }
 
-      // 4. Pending loan requests — only needed for admin, safe to call
-      //    getLoanRequest reads public mapping, no modifier, always safe
       const reqCount = Number(await c.loanRequestCount());
       if (reqCount > 0) {
         const reqs = [];
         for (let i = reqCount - 1; i >= Math.max(0, reqCount - 20); i--) {
           try {
             const r = await c.getLoanRequest(i);
-            if (!r.approved && !r.rejected) reqs.push({ id: i, ...r });
-          } catch (_) { /* skip bad entries */ }
+            if (r && !r.approved && !r.rejected) {
+              reqs.push({ id: i, ...r });
+            }
+          } catch (_) { }
         }
         setPendingReqs(reqs);
       }
-
     } catch (e) {
       console.error('refreshAll error:', e);
     }
@@ -149,22 +269,30 @@ export default function App() {
 
   // ── Connect Wallet ────────────────────────────────────
   const connectWallet = async () => {
-    if (!window.ethereum) { show('MetaMask not detected', 'error'); return; }
+    if (!window.ethereum) {
+      show('MetaMask not detected', 'error');
+      return;
+    }
     try {
       const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
       setAccount(accounts[0]);
       await refreshAll(accounts[0]);
     } catch (e) {
       show('Connection rejected', 'error');
+      console.error(e);
     }
   };
 
   useEffect(() => {
     if (!window.ethereum) return;
-    window.ethereum.on('accountsChanged', (accs) => {
+    const handleAccountsChanged = (accs) => {
       setAccount(accs[0] || null);
       if (accs[0]) refreshAll(accs[0]);
-    });
+    };
+    window.ethereum.on('accountsChanged', handleAccountsChanged);
+    return () => {
+      window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
+    };
   }, [refreshAll]);
 
   // ── Transactions ──────────────────────────────────────
@@ -179,25 +307,67 @@ export default function App() {
     );
   };
 
-  const handleContribute = () => tx(
-    async () => (await getContract(true)).contribute({ value: ethers.parseEther(depositAmt || '0') }),
-    'Contribution successful!'
-  );
+  const handleContribute = () => {
+    const validation = validateRwfAmount(depositRwf, 'deposit');
+    if (!validation.valid) {
+      show(validation.error, 'error');
+      return;
+    }
+    
+    tx(
+      async (value) => (await getContract(true)).contribute({ value }),
+      `${validation.rwf.toLocaleString()} RWF contributed successfully!`,
+      validation.wei
+    );
+    
+    setDepositRwf('');
+  };
 
-  const handleWithdraw = () => tx(
-    async () => (await getContract(true)).withdrawSavings(ethers.parseEther(withdrawAmt || '0')),
-    'Withdrawal successful!'
-  );
+  const handleWithdraw = () => {
+    const validation = validateRwfAmount(withdrawRwf, 'withdraw');
+    if (!validation.valid) {
+      show(validation.error, 'error');
+      return;
+    }
+    
+    tx(
+      async () => (await getContract(true)).withdrawSavings(validation.wei),
+      `${validation.rwf.toLocaleString()} RWF withdrawn successfully!`
+    );
+    
+    setWithdrawRwf('');
+  };
 
-  const handleRequestLoan = () => tx(
-    async () => (await getContract(true)).requestLoan(ethers.parseEther(loanAmt || '0')),
-    'Loan request submitted!'
-  );
+  const handleRequestLoan = () => {
+    const validation = validateRwfAmount(loanRwf, 'loan');
+    if (!validation.valid) {
+      show(validation.error, 'error');
+      return;
+    }
+    
+    tx(
+      async () => (await getContract(true)).requestLoan(validation.wei),
+      `Loan request for ${validation.rwf.toLocaleString()} RWF submitted!`
+    );
+    
+    setLoanRwf('');
+  };
 
-  const handleRepay = () => tx(
-    async () => (await getContract(true)).repayLoan({ value: ethers.parseEther(repayAmt || '0') }),
-    'Repayment successful!'
-  );
+  const handleRepay = () => {
+    const validation = validateRwfAmount(repayRwf, 'repay');
+    if (!validation.valid) {
+      show(validation.error, 'error');
+      return;
+    }
+    
+    tx(
+      async (value) => (await getContract(true)).repayLoan({ value }),
+      `${validation.rwf.toLocaleString()} RWF repayment successful!`,
+      validation.wei
+    );
+    
+    setRepayRwf('');
+  };
 
   const handleClaimDividends = () => tx(
     async () => (await getContract(true)).claimDividends(),
@@ -219,26 +389,68 @@ export default function App() {
     `Loan #${id} rejected.`
   );
 
-  // ── Derived ──────────────────────────────────────────
+  // ── Derived Values - Using Integer Math ──────────────────
   const loanStatusKey = loan ? LOAN_STATUS[Number(loan.status)]?.toLowerCase() : 'none';
-  const maxLoan       = member ? fmt(BigInt(member.savings) * 3n) : '0';
-  const hasDividends  = member && BigInt(member.pendingDividends || 0) > 0n;
-  const termPct       = term ? termProgress(term.startTime, term.endTime) : 0;
+  
+  const getSavingsRwf = () => {
+    if (!member) return '0';
+    return fmtRWFDisplay(member.savings);
+  };
+  
+  const getMaxLoanRwf = () => {
+    if (!member) return '0';
+    const maxLoanWei = BigInt(member.savings) * 3n;
+    const maxLoanRwf = maxLoanWei / WEI_PER_RWF;
+    return Number(maxLoanRwf).toLocaleString();
+  };
+  
+  const getPendingDividendsRwf = () => {
+    if (!member) return '0';
+    return fmtRWFDisplay(member.pendingDividends);
+  };
+  
+  const getTotalPoolRwf = () => {
+    if (!totalPool || totalPool === '0') return '0';
+    const poolWei = BigInt(Math.floor(parseFloat(totalPool) * Number(WEI_PER_ETH)));
+    const poolRwf = poolWei / WEI_PER_RWF;
+    return Number(poolRwf).toLocaleString();
+  };
+  
+  const getReservePoolRwf = () => {
+    if (!reservePool || reservePool === '0') return '0';
+    const reserveWei = BigInt(Math.floor(parseFloat(reservePool) * Number(WEI_PER_ETH)));
+    const reserveRwf = reserveWei / WEI_PER_RWF;
+    return Number(reserveRwf).toLocaleString();
+  };
+  
+  const getLoanRemainingRwf = () => {
+    if (!loan || loanStatusKey !== 'active') return '0';
+    const remainingWei = BigInt(loan.remainingOwed);
+    const remainingRwf = remainingWei / WEI_PER_RWF;
+    return Number(remainingRwf).toLocaleString();
+  };
+  
+  const hasDividends = member && member.pendingDividends && BigInt(member.pendingDividends) > 0n;
+  const termPct = term ? termProgress(term.startTime, term.endTime) : 0;
+  const minContributionRwf = Math.ceil(0.001 * ETH_RWF_RATE);
 
   // ── Render ────────────────────────────────────────────
   if (!account) {
     return (
-      <div className="app-container">
-        <nav className="header">
+      <div className="dashboard-layout">
+        <header className="dashboard-header">
           <div className="header-brand">
             <h1>Ikimina</h1>
-            <span>Web3 Savings</span>
+            <span>Web3 Savings - RWF</span>
           </div>
-        </nav>
+        </header>
         <div className="connect-screen">
           <div className="connect-logo">🏦</div>
           <h2>Community Savings Pool</h2>
-          <p>Save together, borrow smart. Connect your wallet to join the Ikimina savings group.</p>
+          <p>Save in RWF, powered by Ethereum. Connect your wallet to join the Ikimina savings group.</p>
+          <div className="rate-info">
+            💱 Fixed Rate: 1 ETH = {ETH_RWF_RATE.toLocaleString()} RWF
+          </div>
           <button className="connect-btn-large" onClick={connectWallet}>
             Connect Wallet
           </button>
@@ -254,14 +466,18 @@ export default function App() {
       <header className="dashboard-header">
         <div className="header-brand">
           <h1>Ikimina</h1>
-          <span>Web3 Savings</span>
+          <span>Web3 Savings - RWF</span>
         </div>
         <div className="header-actions">
           {isAdmin && <span className="admin-badge">⚙ Admin</span>}
           <span className="network-badge">Sepolia</span>
+          <div className="eth-balance">
+            <span className="balance-label">ETH Balance:</span>
+            <span className="balance-value">{parseFloat(ethBalance).toFixed(4)} ETH</span>
+          </div>
           <button className="btn-primary" onClick={connectWallet} disabled={loading}>
             {account ? shortAddr(account) : 'Connect'}
-            {loading && <span className="spinner" />}
+            {loading && <span className="spinner">⟳</span>}
           </button>
         </div>
       </header>
@@ -310,35 +526,45 @@ export default function App() {
                     <div className="profile-wallet-label">Wallet Address</div>
                     <div className="profile-wallet-addr">
                       <span className="wallet-full">{account}</span>
-                      <button className="copy-btn" onClick={() => navigator.clipboard.writeText(account) && show('Copied!')} title="Copy">
+                      <button className="copy-btn" onClick={() => {
+                        navigator.clipboard.writeText(account);
+                        show('Copied!', 'success');
+                      }} title="Copy">
                         ⎘
                       </button>
                     </div>
                   </div>
                 </div>
               )}
+              <div className="exchange-rate-banner">
+                💱 Fixed Exchange Rate: 1 ETH = {ETH_RWF_RATE.toLocaleString()} RWF
+                <span className="rate-note">(No rounding discrepancies - exact values)</span>
+              </div>
               <div className="stats-grid">
-                <div className="stat-card" style={{'--accent-color': 'var(--gold)'}}>
+                <div className="stat-card" style={{ '--accent-color': 'var(--gold)' }}>
                   <div className="stat-label">My Savings</div>
-                  <div className="stat-value gold">{member ? fmt(member.savings) : '—'} ETH</div>
-                  <div className="stat-sub">Max loan: {maxLoan} ETH</div>
+                  <div className="stat-value gold">{getSavingsRwf()} RWF</div>
+                  <div className="stat-sub">≈ {member ? fmtETH(member.savings) : '0'} ETH</div>
+                  <div className="stat-sub">Max loan: {getMaxLoanRwf()} RWF</div>
                 </div>
-                <div className="stat-card" style={{'--accent-color': 'var(--green)'}}>
+                <div className="stat-card" style={{ '--accent-color': 'var(--green)' }}>
                   <div className="stat-label">Total Pool</div>
-                  <div className="stat-value green">{totalPool} ETH</div>
-                  <div className="stat-sub">Reserve: {reservePool} ETH</div>
+                  <div className="stat-value green">{getTotalPoolRwf()} RWF</div>
+                  <div className="stat-sub">≈ {totalPool} ETH</div>
+                  <div className="stat-sub">Reserve: {getReservePoolRwf()} RWF</div>
                 </div>
-                <div className="stat-card" style={{'--accent-color': 'var(--blue)'}}>
+                <div className="stat-card" style={{ '--accent-color': 'var(--blue)' }}>
                   <div className="stat-label">Loan Status</div>
-                  <div style={{marginTop: '0.4rem'}}>
+                  <div style={{ marginTop: '0.4rem' }}>
                     <span className={`loan-status ${loanStatusKey}`}>
-                      {LOAN_STATUS[Number(loan?.status)] || 'None'}
+                      {loan && LOAN_STATUS[Number(loan.status)] ? LOAN_STATUS[Number(loan.status)] : 'None'}
                     </span>
                   </div>
                 </div>
-                <div className="stat-card" style={{'--accent-color': 'var(--amber)'}}>
+                <div className="stat-card" style={{ '--accent-color': 'var(--amber)' }}>
                   <div className="stat-label">Pending Dividends</div>
-                  <div className="stat-value amber">{member ? fmt(member.pendingDividends) : '—'} ETH</div>
+                  <div className="stat-value amber">{getPendingDividendsRwf()} RWF</div>
+                  <div className="stat-sub">≈ {member ? fmtETH(member.pendingDividends) : '0'} ETH</div>
                   <div className="stat-sub">Members: {memberCount}</div>
                 </div>
               </div>
@@ -350,9 +576,9 @@ export default function App() {
             <div className="page-section">
               <h1>Savings</h1>
               {term && (
-                <div className="action-card" style={{marginBottom: '1.25rem'}}>
-                  <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem'}}>
-                    <span style={{fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: '0.95rem'}}>Term #{fmtN(term.termId)}</span>
+                <div className="action-card" style={{ marginBottom: '1.25rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                    <span style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: '0.95rem' }}>Term #{term.termId?.toString() || '0'}</span>
                     <span className={`loan-status ${term.distributed ? 'repaid' : 'active'}`}>
                       {term.distributed ? 'Distributed' : 'Active'}
                     </span>
@@ -363,7 +589,7 @@ export default function App() {
                       <span>{termPct}%</span>
                     </div>
                     <div className="term-bar">
-                      <div className="term-bar-fill" style={{width: `${termPct}%`}} />
+                      <div className="term-bar-fill" style={{ width: `${termPct}%` }} />
                     </div>
                   </div>
                 </div>
@@ -371,27 +597,51 @@ export default function App() {
               <div className="actions-section">
                 <div className="action-card">
                   <h2>Add Savings</h2>
-                  <p className="card-desc">Contribute ETH to the pool. Minimum 0.001 ETH.</p>
+                  <p className="card-desc">Contribute to the pool. Minimum {minContributionRwf.toLocaleString()} RWF.</p>
                   <div className="input-group">
-                    <label>Amount (ETH)</label>
-                    <input type="number" value={depositAmt} onChange={(e) => setDepositAmt(e.target.value)} placeholder="0.05" min="0.001" step="0.001" />
+                    <label>Amount (RWF)</label>
+                    <input 
+                      type="number" 
+                      value={depositRwf} 
+                      onChange={(e) => setDepositRwf(e.target.value)} 
+                      placeholder={`e.g., ${minContributionRwf}`} 
+                      min={minContributionRwf} 
+                      step="1000" 
+                    />
                   </div>
-                  <button className="btn-full" onClick={handleContribute} disabled={loading || !depositAmt}>
-                    {loading ? <span className="spinner" /> : 'Deposit to Pool'}
+                  {depositRwf && parseFloat(depositRwf) > 0 && (
+                    <div className="eth-equivalent">
+                      ≈ {rwfToEthString(depositRwf)} ETH
+                    </div>
+                  )}
+                  <button className="btn-full" onClick={handleContribute} disabled={loading || !depositRwf}>
+                    {loading ? <span className="spinner">⟳</span> : `Deposit ${depositRwf ? parseFloat(depositRwf).toLocaleString() : ''} RWF`}
                   </button>
                 </div>
                 <div className="action-card">
                   <h2>Withdraw Savings</h2>
                   <p className="card-desc">Withdraw your savings. No active loan required.</p>
                   <div className="input-group">
-                    <label>Amount (ETH)</label>
-                    <input type="number" value={withdrawAmt} onChange={(e) => setWithdrawAmt(e.target.value)} placeholder="0.01" min="0.001" step="0.001" />
+                    <label>Amount (RWF)</label>
+                    <input 
+                      type="number" 
+                      value={withdrawRwf} 
+                      onChange={(e) => setWithdrawRwf(e.target.value)} 
+                      placeholder="e.g., 25000" 
+                      min="1000" 
+                      step="1000" 
+                    />
                   </div>
-                  <div style={{fontSize: '0.75rem', color: 'var(--text-3)', marginBottom: '0.5rem'}}>
-                    Available: {fmt(member?.savings)} ETH
+                  {withdrawRwf && parseFloat(withdrawRwf) > 0 && (
+                    <div className="eth-equivalent">
+                      ≈ {rwfToEthString(withdrawRwf)} ETH
+                    </div>
+                  )}
+                  <div className="available-balance">
+                    Available: {getSavingsRwf()} RWF
                   </div>
-                  <button className="btn-danger" onClick={handleWithdraw} disabled={loading || !withdrawAmt || loanStatusKey === 'active'}>
-                    {loanStatusKey === 'active' ? 'Repay loan first' : loading ? <span className="spinner" /> : 'Withdraw'}
+                  <button className="btn-danger" onClick={handleWithdraw} disabled={loading || !withdrawRwf || loanStatusKey === 'active'}>
+                    {loanStatusKey === 'active' ? 'Repay loan first' : loading ? <span className="spinner">⟳</span> : 'Withdraw'}
                   </button>
                 </div>
               </div>
@@ -408,40 +658,65 @@ export default function App() {
                   <p className="card-desc">Borrow up to 3× savings at 5% interest. Admin approval required.</p>
                   {loanStatusKey === 'active' || loanStatusKey === 'pending' ? (
                     <div className="loan-info">
-                      <div className="loan-info-row"><span>Principal</span><span>{fmt(loan.principal)} ETH</span></div>
-                      <div className="loan-info-row"><span>Total Owed</span><span>{fmt(loan.totalOwed)} ETH</span></div>
-                      <div className="loan-info-row"><span>Repaid</span><span>{fmt(loan.amountRepaid)} ETH</span></div>
-                      <div className="loan-info-row"><span>Remaining</span><span style={{color: 'var(--red)'}}>{fmt(loan.remainingOwed)} ETH</span></div>
+                      <div className="loan-info-row"><span>Principal</span><span>{loan ? fmtRWFDisplay(loan.principal) : '0'} RWF</span></div>
+                      <div className="loan-info-row"><span>Total Owed</span><span>{loan ? fmtRWFDisplay(loan.totalOwed) : '0'} RWF</span></div>
+                      <div className="loan-info-row"><span>Repaid</span><span>{loan ? fmtRWFDisplay(loan.amountRepaid) : '0'} RWF</span></div>
+                      <div className="loan-info-row"><span>Remaining</span><span style={{ color: 'var(--red)' }}>{getLoanRemainingRwf()} RWF</span></div>
                     </div>
                   ) : (
                     <>
                       <div className="input-group">
-                        <label>Loan Amount (ETH)</label>
-                        <input type="number" value={loanAmt} onChange={(e) => setLoanAmt(e.target.value)} placeholder="0.1" min="0" step="0.001" />
+                        <label>Loan Amount (RWF)</label>
+                        <input 
+                          type="number" 
+                          value={loanRwf} 
+                          onChange={(e) => setLoanRwf(e.target.value)} 
+                          placeholder="e.g., 100000" 
+                          min="10000" 
+                          step="10000" 
+                        />
                       </div>
-                      <div style={{fontSize: '0.75rem', color: 'var(--text-3)', marginBottom: '0.5rem'}}>
-                        Max: {maxLoan} ETH · 5% interest · 30 days
+                      {loanRwf && parseFloat(loanRwf) > 0 && (
+                        <div className="eth-equivalent">
+                          ≈ {rwfToEthString(loanRwf)} ETH
+                        </div>
+                      )}
+                      <div className="loan-limits">
+                        Max: {getMaxLoanRwf()} RWF · 5% interest · 30 days
                       </div>
-                      <button className="btn-full" onClick={handleRequestLoan} disabled={loading || !loanAmt || parseFloat(loanAmt) > parseFloat(maxLoan)}>
-                        {loading ? <span className="spinner" /> : 'Request Loan'}
+                      <button className="btn-full" onClick={handleRequestLoan} disabled={loading || !loanRwf}>
+                        {loading ? <span className="spinner">⟳</span> : `Request ${loanRwf ? parseFloat(loanRwf).toLocaleString() : ''} RWF`}
                       </button>
                     </>
                   )}
                 </div>
                 <div className="action-card">
                   <h2>Repay Loan</h2>
-                  <p className="card-desc">Partial or full repayment. Overpayment refunded.</p>
+                  <p className="card-desc">Partial or full repayment. Overpayment refunded. Any amount accepted.</p>
                   <div className="input-group">
-                    <label>Repayment Amount (ETH)</label>
-                    <input type="number" value={repayAmt} onChange={(e) => setRepayAmt(e.target.value)} placeholder="0.105" min="0" step="0.001" disabled={loanStatusKey !== 'active'} />
+                    <label>Repayment Amount (RWF)</label>
+                    <input 
+                      type="number" 
+                      value={repayRwf} 
+                      onChange={(e) => setRepayRwf(e.target.value)} 
+                      placeholder="Enter any amount" 
+                      min="1" 
+                      step="1000" 
+                      disabled={loanStatusKey !== 'active'} 
+                    />
                   </div>
-                  {loanStatusKey === 'active' && (
-                    <div style={{fontSize: '0.75rem', color: 'var(--text-3)', marginBottom: '0.5rem'}}>
-                      Remaining: {fmt(loan.remainingOwed)} ETH
+                  {repayRwf && parseFloat(repayRwf) > 0 && loanStatusKey === 'active' && (
+                    <div className="eth-equivalent">
+                      ≈ {rwfToEthString(repayRwf)} ETH
                     </div>
                   )}
-                  <button className="btn-green" onClick={handleRepay} disabled={loading || loanStatusKey !== 'active' || !repayAmt}>
-                    {loanStatusKey !== 'active' ? 'No Active Loan' : loading ? <span className="spinner" /> : 'Repay'}
+                  {loanStatusKey === 'active' && (
+                    <div className="remaining-balance">
+                      Remaining: {getLoanRemainingRwf()} RWF
+                    </div>
+                  )}
+                  <button className="btn-green" onClick={handleRepay} disabled={loading || loanStatusKey !== 'active' || !repayRwf}>
+                    {loanStatusKey !== 'active' ? 'No Active Loan' : loading ? <span className="spinner">⟳</span> : `Repay ${repayRwf ? parseFloat(repayRwf).toLocaleString() : ''} RWF`}
                   </button>
                 </div>
               </div>
@@ -449,7 +724,7 @@ export default function App() {
           )}
 
           {/* Dividends Page */}
-          {currentPage === 'dividends' && (
+          {currentPage === 'dividends' && member && (
             <div className="page-section">
               <h1>Dividends</h1>
               <div className="actions-section">
@@ -457,12 +732,12 @@ export default function App() {
                   <h2>Your Dividends</h2>
                   <p className="card-desc">80% of term interest distributed pro-rata.</p>
                   <div className="loan-info">
-                    <div className="loan-info-row"><span>Pending</span><span style={{color: 'var(--amber)'}}>{fmt(member.pendingDividends)} ETH</span></div>
-                    <div className="loan-info-row"><span>Savings</span><span>{fmt(member.savings)} ETH</span></div>
-                    <div className="loan-info-row"><span>Term Interest</span><span>{term ? fmt(term.interestCollected) : '—'} ETH</span></div>
+                    <div className="loan-info-row"><span>Pending</span><span style={{ color: 'var(--amber)' }}>{getPendingDividendsRwf()} RWF</span></div>
+                    <div className="loan-info-row"><span>Savings</span><span>{getSavingsRwf()} RWF</span></div>
+                    <div className="loan-info-row"><span>Term Interest</span><span>{term ? fmtRWFDisplay(term.interestCollected) : '—'} RWF</span></div>
                   </div>
                   <button className="btn-full" onClick={handleClaimDividends} disabled={loading || !hasDividends}>
-                    {!hasDividends ? 'No Dividends' : loading ? <span className="spinner" /> : 'Claim'}
+                    {!hasDividends ? 'No Dividends' : loading ? <span className="spinner">⟳</span> : 'Claim Dividends'}
                   </button>
                 </div>
                 <div className="action-card">
@@ -475,7 +750,7 @@ export default function App() {
                     </div>
                   )}
                   <button className="btn-full" onClick={handleDistributeDividends} disabled={loading || !term || term.distributed || termPct < 100}>
-                    {term?.distributed ? 'Done' : termPct < 100 ? `Term ${termPct}%` : loading ? <span className="spinner" /> : 'Distribute'}
+                    {term?.distributed ? 'Done' : termPct < 100 ? `Term ${termPct}%` : loading ? <span className="spinner">⟳</span> : 'Distribute'}
                   </button>
                 </div>
               </div>
@@ -483,7 +758,7 @@ export default function App() {
           )}
 
           {/* Admin Page */}
-          {currentPage === 'admin' && (
+          {currentPage === 'admin' && isAdmin && (
             <div className="page-section">
               <h1>Admin Panel</h1>
               <div className="action-card">
@@ -503,11 +778,11 @@ export default function App() {
                   </div>
                   <div className="input-group">
                     <label>Phone</label>
-                    <input value={regPhone} onChange={(e) => setRegPhone(e.target.value)} placeholder="+1 555 1234" />
+                    <input value={regPhone} onChange={(e) => setRegPhone(e.target.value)} placeholder="+250 788 123 456" />
                   </div>
                 </div>
                 <button className="btn-full" onClick={handleRegister} disabled={loading || !regWallet || !regName || !regEmail || !regPhone}>
-                  {loading ? <span className="spinner" /> : 'Register'}
+                  {loading ? <span className="spinner">⟳</span> : 'Register Member'}
                 </button>
               </div>
               <div className="pending-requests">
@@ -519,7 +794,7 @@ export default function App() {
                     <div key={r.id} className="request-card">
                       <div className="request-info">
                         <div>{shortAddr(r.borrower)}</div>
-                        <div>{fmt(r.amount)} ETH</div>
+                        <div>{fmtRWFDisplay(r.amount)} RWF</div>
                       </div>
                       <div className="request-actions">
                         <button className="btn-approve" onClick={() => handleApproveLoan(r.id)}>Approve</button>
@@ -539,6 +814,7 @@ export default function App() {
         <div className="footer-content">
           <span>Contract: {shortAddr(CONTRACT_ADDRESS)}</span>
           <span>Sepolia Testnet</span>
+          <span>💱 1 ETH = {ETH_RWF_RATE.toLocaleString()} RWF (Fixed)</span>
         </div>
       </footer>
 

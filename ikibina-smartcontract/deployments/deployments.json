@@ -4,6 +4,15 @@
     "history": [
       {
         "contract": "Ikimina",
+        "address": "0x6B556d24647a74880302E0BE8036bA3DDBF77c74",
+        "deployer": "0x2D3C3085a3Bbd6Ca0fBf88668B188e60c2624142",
+        "txHash": "0xb80484a924ec9d6e21412fcb6580f385f277a9b60f2db5cb0919a803812bdb4c",
+        "deployedAt": "2026-05-05T03:52:24.371Z",
+        "loanMultiplier": "3",
+        "interestBps": "500"
+      },
+      {
+        "contract": "Ikimina",
         "address": "0x504a63D2d571A3751B5d785f992f43Dcfe11aD3C",
         "deployer": "0x2D3C3085a3Bbd6Ca0fBf88668B188e60c2624142",
         "txHash": "0x9e22dc4cb085b129a962b905843105655aaa7e1634dc2fc9e4653191f659210b",
@@ -32,10 +41,10 @@
     ],
     "latest": {
       "contract": "Ikimina",
-      "address": "0x504a63D2d571A3751B5d785f992f43Dcfe11aD3C",
+      "address": "0x6B556d24647a74880302E0BE8036bA3DDBF77c74",
       "deployer": "0x2D3C3085a3Bbd6Ca0fBf88668B188e60c2624142",
-      "txHash": "0x9e22dc4cb085b129a962b905843105655aaa7e1634dc2fc9e4653191f659210b",
-      "deployedAt": "2026-05-04T16:54:36.279Z",
+      "txHash": "0xb80484a924ec9d6e21412fcb6580f385f277a9b60f2db5cb0919a803812bdb4c",
+      "deployedAt": "2026-05-05T03:52:24.371Z",
       "loanMultiplier": "3",
       "interestBps": "500"
     }
