@@ -107,6 +107,60 @@ export default function App() {
     return new ethers.Contract(CONTRACT_ADDRESS, ABI, runner);
   };
 
+  // ── Dividend Projection Calculations ──────────────────
+  const calculateDividendProjections = () => {
+    if (!term || !allMembers.length) return [];
+    
+    const totalInterestWei = BigInt(term.interestCollected || 0);
+    const dividendPoolWei = (totalInterestWei * 8000n) / 10000n; // 80% of interest
+    
+    const totalSavingsWei = allMembers.reduce((total, m) => {
+      return total + (m.isActive ? BigInt(m.savings) : 0n);
+    }, 0n);
+    
+    const projections = allMembers.map(m => {
+      const savingsWei = BigInt(m.savings);
+      const savingsRwf = Number(savingsWei / WEI_PER_RWF);
+      
+      let projectedDividendWei = 0n;
+      let percentage = 0;
+      
+      if (totalSavingsWei > 0n && m.isActive) {
+        projectedDividendWei = (dividendPoolWei * savingsWei) / totalSavingsWei;
+        percentage = Number((savingsWei * 10000n) / totalSavingsWei) / 100;
+      }
+      
+      const projectedDividendRwf = Number(projectedDividendWei / WEI_PER_RWF);
+      
+      return {
+        address: m.address,
+        name: m.name,
+        savingsRwf: savingsRwf,
+        percentage: percentage,
+        projectedDividend: projectedDividendRwf,
+        isActive: m.isActive
+      };
+    });
+    
+    // Sort by projected dividend (highest first)
+    return projections.sort((a, b) => b.projectedDividend - a.projectedDividend);
+  };
+
+  const calculateTotalSavings = () => {
+    if (!allMembers.length) return 0;
+    return allMembers.reduce((total, m) => {
+      const savingsWei = BigInt(m.savings);
+      return total + Number(savingsWei / WEI_PER_RWF);
+    }, 0);
+  };
+
+  const calculateTotalDividendPool = () => {
+    if (!term) return 0;
+    const totalInterestWei = BigInt(term.interestCollected || 0);
+    const dividendPoolWei = (totalInterestWei * 8000n) / 10000n;
+    return Number(dividendPoolWei / WEI_PER_RWF);
+  };
+
   // ── Fetch all members from contract ──────────────────
   const fetchAllMembers = useCallback(async () => {
     if (!account || !window.ethereum) return;
@@ -115,7 +169,6 @@ export default function App() {
     try {
       const c = await getContract();
       
-      // Get member list from contract
       const memberAddresses = await c.getMemberList();
       console.log('Member addresses from contract:', memberAddresses);
       console.log('Number of members:', memberAddresses.length);
@@ -186,7 +239,6 @@ export default function App() {
     const minEth = 0.001;
     const minRwf = Math.ceil(minEth * ETH_RWF_RATE);
     
-    // DEPOSIT / CONTRIBUTION - minimum check applies
     if (type === 'deposit') {
       if (ethAmount < minEth - 0.0000001) {
         return { 
@@ -197,7 +249,6 @@ export default function App() {
       return { valid: true, rwf: numAmount, wei: weiAmount, eth: ethAmount };
     }
     
-    // REPAY - no minimum, but must have active loan
     if (type === 'repay') {
       const loanStatusKey = loan ? LOAN_STATUS[Number(loan.status)]?.toLowerCase() : 'none';
       if (loanStatusKey !== 'active') {
@@ -216,7 +267,6 @@ export default function App() {
       return { valid: true, rwf: numAmount, wei: weiAmount, eth: ethAmount };
     }
     
-    // WITHDRAW - must have sufficient balance
     if (type === 'withdraw') {
       if (!member) {
         return { valid: false, error: 'Not a registered member' };
@@ -232,7 +282,6 @@ export default function App() {
       return { valid: true, rwf: numAmount, wei: weiAmount, eth: ethAmount };
     }
     
-    // LOAN REQUEST - must be within limit
     if (type === 'loan') {
       if (!member) {
         return { valid: false, error: 'Not a registered member' };
@@ -336,7 +385,6 @@ export default function App() {
         setPendingReqs(reqs);
       }
       
-      // Fetch all members after getting contract data
       await fetchAllMembers();
       
     } catch (e) {
@@ -360,7 +408,6 @@ export default function App() {
     }
   };
 
-  // Auto-refresh when page becomes visible
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (!document.hidden && account) {
@@ -541,13 +588,16 @@ export default function App() {
   const termPct = term ? termProgress(term.startTime, term.endTime) : 0;
   const minContributionRwf = Math.ceil(0.001 * ETH_RWF_RATE);
   
-  // Filter members for search
   const filteredMembers = allMembers.filter(m => 
     m.name.toLowerCase().includes(memberSearch.toLowerCase()) ||
     m.email.toLowerCase().includes(memberSearch.toLowerCase()) ||
     m.phone.includes(memberSearch) ||
     shortAddr(m.address).toLowerCase().includes(memberSearch.toLowerCase())
   );
+
+  const dividendProjections = calculateDividendProjections();
+  const totalSavings = calculateTotalSavings();
+  const totalDividendPool = calculateTotalDividendPool();
 
   // ── Render ────────────────────────────────────────────
   if (!account) {
@@ -1018,7 +1068,7 @@ export default function App() {
             </div>
           )}
 
-          {/* Dividends Page */}
+          {/* Dividends Page with Projections */}
           {currentPage === 'dividends' && member && (
             <div className="page-section">
               <h1>Dividends</h1>
@@ -1035,6 +1085,7 @@ export default function App() {
                     {!hasDividends ? 'No Dividends' : loading ? <span className="spinner">⟳</span> : 'Claim Dividends'}
                   </button>
                 </div>
+                
                 <div className="action-card">
                   <h2>Distribute Dividends</h2>
                   <p className="card-desc">Trigger distribution at term end.</p>
@@ -1048,6 +1099,83 @@ export default function App() {
                     {term?.distributed ? 'Done' : termPct < 100 ? `Term ${termPct}%` : loading ? <span className="spinner">⟳</span> : 'Distribute'}
                   </button>
                 </div>
+              </div>
+
+              {/* Dividend Projections Table */}
+              <div className="dividend-projections">
+                <div className="projections-header">
+                  <h2>📊 Dividend Projections - What Everyone Will Get</h2>
+                  <div className="projections-info">
+                    <span>💰 Total Interest: {term ? fmtRWFDisplay(term.interestCollected) : '0'} RWF</span>
+                    <span>🎯 Dividend Pool (80%): {totalDividendPool.toLocaleString()} RWF</span>
+                    <span>🏦 Reserve Pool (20%): {term ? fmtRWFDisplay(BigInt(Math.floor(Number(term.interestCollected) * 0.2 * Number(WEI_PER_ETH)))) : '0'} RWF</span>
+                  </div>
+                </div>
+                
+                <div className="projections-table-wrapper">
+                  <table className="projections-table">
+                    <thead>
+                      <tr>
+                        <th>Member</th>
+                        <th>Savings (RWF)</th>
+                        <th>% of Pool</th>
+                        <th>Projected Dividend</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dividendProjections.map((proj, idx) => (
+                        <tr key={idx} className={proj.address.toLowerCase() === account?.toLowerCase() ? 'current-user-row' : ''}>
+                          <td>
+                            <div className="member-cell">
+                              <span className="member-avatar-small">{proj.name.charAt(0).toUpperCase()}</span>
+                              <div>
+                                <div className="member-name-cell">{proj.name}</div>
+                                <div className="member-address-cell">{shortAddr(proj.address)}</div>
+                              </div>
+                              {proj.address.toLowerCase() === account?.toLowerCase() && <span className="you-badge">You</span>}
+                            </div>
+                          </td>
+                          <td className="text-right">{proj.savingsRwf.toLocaleString()} RWF</td>
+                          <td className="text-center">{proj.percentage}%</td>
+                          <td className="text-right gold">{proj.projectedDividend.toLocaleString()} RWF</td>
+                          <td className="text-center">
+                            <span className={`status-badge ${proj.isActive ? 'active' : 'inactive'}`}>
+                              {proj.isActive ? 'Active' : 'Inactive'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="total-row">
+                        <td><strong>Total</strong></td>
+                        <td className="text-right"><strong>{totalSavings.toLocaleString()} RWF</strong></td>
+                        <td className="text-center"><strong>100%</strong></td>
+                        <td className="text-right"><strong>{totalDividendPool.toLocaleString()} RWF</strong></td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+                
+                {term && term.distributed && (
+                  <div className="alert alert-success">
+                    ✅ Dividends for Term #{term.termId?.toString()} have been distributed!
+                  </div>
+                )}
+                
+                {term && !term.distributed && termPct >= 100 && (
+                  <div className="alert alert-warning">
+                    ⏰ Term has ended! Click "Distribute Dividends" above to distribute.
+                  </div>
+                )}
+                
+                {term && !term.distributed && (Number(fmtRWF(term.interestCollected)) === 0) && (
+                  <div className="alert alert-info">
+                    💡 No interest collected yet. Dividends will appear here when members repay loans with interest.
+                  </div>
+                )}
               </div>
             </div>
           )}

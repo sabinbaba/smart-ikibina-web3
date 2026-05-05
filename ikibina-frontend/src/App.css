@@ -841,6 +841,193 @@ body::before {
   color: var(--red);
 }
 
+/* Dividend Projections Table */
+.dividend-projections {
+  margin-top: 2rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.projections-header {
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.projections-header h2 {
+  font-family: 'Syne', sans-serif;
+  font-size: 1.1rem;
+  margin-bottom: 0.75rem;
+  color: var(--gold);
+}
+
+.projections-info {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+}
+
+.projections-info span {
+  color: var(--text-2);
+}
+
+.projections-table-wrapper {
+  overflow-x: auto;
+}
+
+.projections-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.projections-table thead tr {
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.projections-table th {
+  padding: 0.875rem 1rem;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-2);
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+}
+
+.projections-table td {
+  padding: 0.875rem 1rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+.projections-table tr:hover {
+  background: var(--surface-2);
+}
+
+.current-user-row {
+  background: var(--gold-glow);
+  border-left: 3px solid var(--gold);
+}
+
+.current-user-row td:first-child {
+  border-left: 3px solid var(--gold);
+}
+
+.member-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.member-avatar-small {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--gold-glow);
+  border: 1px solid var(--gold-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: bold;
+  color: var(--gold);
+  flex-shrink: 0;
+}
+
+.member-name-cell {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.member-address-cell {
+  font-size: 0.65rem;
+  color: var(--text-3);
+  font-family: 'DM Mono', monospace;
+}
+
+.you-badge {
+  background: var(--gold);
+  color: #07090d;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.6rem;
+  font-weight: 600;
+  margin-left: 0.5rem;
+  white-space: nowrap;
+}
+
+.text-right {
+  text-align: right;
+}
+
+.text-center {
+  text-align: center;
+}
+
+.gold {
+  color: var(--gold);
+  font-weight: 600;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 500;
+}
+
+.status-badge.active {
+  background: var(--green-dim);
+  color: var(--green);
+}
+
+.status-badge.inactive {
+  background: var(--red-dim);
+  color: var(--red);
+}
+
+.total-row {
+  background: var(--surface-2);
+  font-weight: 600;
+}
+
+.total-row td {
+  border-top: 1px solid var(--border-light);
+  border-bottom: none;
+}
+
+/* Alerts */
+.alert {
+  padding: 1rem;
+  margin: 1rem;
+  border-radius: var(--radius);
+  font-size: 0.8rem;
+}
+
+.alert-success {
+  background: var(--green-dim);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: var(--green);
+}
+
+.alert-warning {
+  background: var(--amber-dim);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: var(--amber);
+}
+
+.alert-info {
+  background: var(--blue-dim);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: var(--blue);
+}
+
 /* Actions Section */
 .actions-section {
   display: grid;
@@ -1373,6 +1560,34 @@ button:disabled {
     flex-direction: column;
     align-items: flex-start;
   }
+  
+  .projections-info {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  
+  .projections-table th,
+  .projections-table td {
+    padding: 0.5rem;
+  }
+  
+  .member-cell {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
+  
+  .member-avatar-small {
+    width: 24px;
+    height: 24px;
+    font-size: 0.7rem;
+  }
+  
+  .you-badge {
+    margin-left: 0;
+    margin-top: 0.25rem;
+    display: inline-block;
+  }
 }
 
 @media (max-width: 480px) {
@@ -1411,5 +1626,18 @@ button:disabled {
   
   .btn-refresh {
     width: 100%;
+  }
+  
+  .projections-table {
+    font-size: 0.7rem;
+  }
+  
+  .projections-table th,
+  .projections-table td {
+    padding: 0.4rem;
+  }
+  
+  .member-name-cell {
+    font-size: 0.75rem;
   }
 }
