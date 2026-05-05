@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ethers } from 'ethers';
-import { CONTRACT_ADDRESS, ABI, LOAN_STATUS } from './contracts/config';
+import { CONTRACT_ADDRESS, ABI, LOAN_STATUS, MEMBER_ROLES, POOL_SAFETY } from './contracts/config';
 import './App.css';
 
 // ── Constants - Using Integer Math for Perfect Precision ──
@@ -20,7 +20,7 @@ function useToast() {
   return { toasts, show };
 }
 
-// ── Utilities - NO FLOATING POINT DISCREPANCIES ──────────
+// ── Utilities ──────────────────────────────────────────
 const fmtETH = (wei) => {
   if (!wei) return '0';
   return (Number(wei) / Number(WEI_PER_ETH)).toFixed(8);
@@ -58,6 +58,9 @@ const termProgress = (start, end) => {
   return Math.max(0, pct).toFixed(1);
 };
 
+// ── Helper: check if a role is a leader role ──────────
+const isLeaderRole = (role) => role === 1 || role === 2 || role === 3;
+
 // ── Main App ──────────────────────────────────────────
 export default function App() {
   const { toasts, show } = useToast();
@@ -67,6 +70,8 @@ export default function App() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(false);
   const [ethBalance, setEthBalance] = useState('0');
+  const [userRole, setUserRole] = useState(null);
+  const [isAuthorizedApprover, setIsAuthorizedApprover] = useState(false);
 
   // Contract data
   const [member, setMember] = useState(null);
@@ -77,23 +82,24 @@ export default function App() {
   const [memberCount, setMemberCount] = useState('0');
   const [contractBal, setContractBal] = useState('0');
   const [pendingReqs, setPendingReqs] = useState([]);
-  
+  const [pendingApprovals, setPendingApprovals] = useState([]);
+
   // Member directory
   const [allMembers, setAllMembers] = useState([]);
   const [selectedMember, setSelectedMember] = useState(null);
   const [memberSearch, setMemberSearch] = useState('');
   const [showMemberModal, setShowMemberModal] = useState(false);
   const [loadingMembers, setLoadingMembers] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
 
-  // Navigation state
+  // Navigation
   const [currentPage, setCurrentPage] = useState('profile');
   const [regName, setRegName] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPhone, setRegPhone] = useState('');
   const [regWallet, setRegWallet] = useState('');
-  
-  // RWF denominated amounts
+  const [regRole, setRegRole] = useState(0);
+
+  // RWF amounts
   const [depositRwf, setDepositRwf] = useState('');
   const [withdrawRwf, setWithdrawRwf] = useState('');
   const [loanRwf, setLoanRwf] = useState('');
@@ -107,94 +113,100 @@ export default function App() {
     return new ethers.Contract(CONTRACT_ADDRESS, ABI, runner);
   };
 
-  // ── Dividend Projection Calculations ──────────────────
+  // ── Fetch pending approvals ───────────────────────────
+  // Uses resolved values (not stale state) to decide whether to fetch.
+  // NOTE: The ABI has no loanApprovals(id, addr) mapping view, so we
+  // cannot check per-leader approval status; all unapproved requests shown.
+  const fetchPendingApprovalsWithValues = useCallback(async (walletAddr, adminMatch, resolvedRole) => {
+    if (adminMatch || !isLeaderRole(resolvedRole)) return;
+    try {
+      const c = await getContract();
+      const reqCount = Number(await c.loanRequestCount());
+      const approvals = [];
+      for (let i = reqCount - 1; i >= Math.max(0, reqCount - 20); i--) {
+        try {
+          const r = await c.getLoanRequest(i);
+          if (r && !r.approved && !r.rejected) {
+            approvals.push({
+              id: i,
+              borrower: r.borrower,
+              amount: r.amount,
+              requestedAt: r.requestedAt,
+            });
+          }
+        } catch (_) {}
+      }
+      setPendingApprovals(approvals);
+      if (approvals.length > 0) {
+        show(`🔔 You have ${approvals.length} pending loan request${approvals.length > 1 ? 's' : ''} to review!`, 'info');
+      }
+    } catch (err) {
+      console.error('Error fetching approvals:', err);
+    }
+  }, [show]);
+
+  const fetchPendingApprovals = useCallback(async () => {
+    if (!account) return;
+    await fetchPendingApprovalsWithValues(account, isAdmin, userRole);
+  }, [account, isAdmin, userRole, fetchPendingApprovalsWithValues]);
+
+  // ── Dividend Projections ──────────────────────────────
   const calculateDividendProjections = () => {
     if (!term || !allMembers.length) return [];
-    
     const totalInterestWei = BigInt(term.interestCollected || 0);
-    const dividendPoolWei = (totalInterestWei * 8000n) / 10000n; // 80% of interest
-    
-    const totalSavingsWei = allMembers.reduce((total, m) => {
-      return total + (m.isActive ? BigInt(m.savings) : 0n);
-    }, 0n);
-    
+    const dividendPoolWei = (totalInterestWei * 8000n) / 10000n;
+    const totalSavingsWei = allMembers.reduce((total, m) => total + (m.isActive ? BigInt(m.savings) : 0n), 0n);
+
     const projections = allMembers.map(m => {
       const savingsWei = BigInt(m.savings);
       const savingsRwf = Number(savingsWei / WEI_PER_RWF);
-      
       let projectedDividendWei = 0n;
       let percentage = 0;
-      
       if (totalSavingsWei > 0n && m.isActive) {
         projectedDividendWei = (dividendPoolWei * savingsWei) / totalSavingsWei;
         percentage = Number((savingsWei * 10000n) / totalSavingsWei) / 100;
       }
-      
-      const projectedDividendRwf = Number(projectedDividendWei / WEI_PER_RWF);
-      
       return {
         address: m.address,
         name: m.name,
-        savingsRwf: savingsRwf,
-        percentage: percentage,
-        projectedDividend: projectedDividendRwf,
-        isActive: m.isActive
+        role: m.role,
+        roleName: MEMBER_ROLES[m.role] || 'Regular',
+        savingsRwf,
+        percentage,
+        projectedDividend: Number(projectedDividendWei / WEI_PER_RWF),
+        isActive: m.isActive,
       };
     });
-    
-    // Sort by projected dividend (highest first)
     return projections.sort((a, b) => b.projectedDividend - a.projectedDividend);
   };
 
-  const calculateTotalSavings = () => {
-    if (!allMembers.length) return 0;
-    return allMembers.reduce((total, m) => {
-      const savingsWei = BigInt(m.savings);
-      return total + Number(savingsWei / WEI_PER_RWF);
-    }, 0);
-  };
+  const calculateTotalSavings = () =>
+    allMembers.reduce((total, m) => total + Number(BigInt(m.savings) / WEI_PER_RWF), 0);
 
   const calculateTotalDividendPool = () => {
     if (!term) return 0;
     const totalInterestWei = BigInt(term.interestCollected || 0);
-    const dividendPoolWei = (totalInterestWei * 8000n) / 10000n;
-    return Number(dividendPoolWei / WEI_PER_RWF);
+    return Number((totalInterestWei * 8000n) / 10000n / WEI_PER_RWF);
   };
 
-  // ── Fetch all members from contract ──────────────────
+  // ── Fetch all members ─────────────────────────────────
   const fetchAllMembers = useCallback(async () => {
     if (!account || !window.ethereum) return;
-    
     setLoadingMembers(true);
     try {
       const c = await getContract();
-      
       const memberAddresses = await c.getMemberList();
-      console.log('Member addresses from contract:', memberAddresses);
-      console.log('Number of members:', memberAddresses.length);
-      
       if (!memberAddresses || memberAddresses.length === 0) {
-        console.log('No members found in contract');
         setAllMembers([]);
-        setLoadingMembers(false);
         return;
       }
-      
       const membersData = [];
-      
       for (const addr of memberAddresses) {
         try {
           const m = await c.getMember(addr);
-          console.log(`Fetching member ${addr}:`, m);
-          
           if (m && m.isRegistered) {
             let loanData = { status: 0, principal: 0, totalOwed: 0, amountRepaid: 0 };
-            try {
-              loanData = await c.getLoan(addr);
-            } catch (err) {
-              // No loan or error, use defaults
-            }
-            
+            try { loanData = await c.getLoan(addr); } catch (_) {}
             membersData.push({
               address: addr,
               name: m.name,
@@ -204,124 +216,77 @@ export default function App() {
               savings: m.savings,
               pendingDividends: m.pendingDividends,
               joinedAt: m.joinedAt,
-              hasActiveLoan: loanData.status === 1 || loanData.status === 2,
+              role: Number(m.role) || 0,
+              hasActiveLoan: Number(loanData.status) === 1 || Number(loanData.status) === 2,
               loanAmount: loanData.principal,
-              loanStatus: loanData.status,
+              loanStatus: Number(loanData.status),
               loanTotalOwed: loanData.totalOwed,
-              loanAmountRepaid: loanData.amountRepaid
+              loanAmountRepaid: loanData.amountRepaid,
             });
           }
         } catch (err) {
           console.error(`Error fetching member ${addr}:`, err);
         }
       }
-      
-      console.log('Final members data:', membersData);
       setAllMembers(membersData);
-      
     } catch (err) {
       console.error('Error fetching members:', err);
       setAllMembers([]);
     } finally {
       setLoadingMembers(false);
     }
-  }, [account, getContract]);
+  }, [account]);
 
-  // ── Validate RWF amount based on transaction type ──────────
+  // ── Validate RWF amounts ──────────────────────────────
   const validateRwfAmount = (amount, type = 'deposit') => {
     const numAmount = parseFloat(amount);
-    if (isNaN(numAmount) || numAmount <= 0) {
-      return { valid: false, error: 'Please enter a valid amount in RWF' };
-    }
-    
+    if (isNaN(numAmount) || numAmount <= 0) return { valid: false, error: 'Please enter a valid amount in RWF' };
     const weiAmount = rwfToWei(amount);
     const ethAmount = Number(weiAmount) / Number(WEI_PER_ETH);
     const minEth = 0.001;
     const minRwf = Math.ceil(minEth * ETH_RWF_RATE);
-    
+
     if (type === 'deposit') {
-      if (ethAmount < minEth - 0.0000001) {
-        return { 
-          valid: false, 
-          error: `Minimum contribution is ${minRwf.toLocaleString()} RWF` 
-        };
-      }
+      if (ethAmount < minEth - 0.0000001) return { valid: false, error: `Minimum contribution is ${minRwf.toLocaleString()} RWF` };
       return { valid: true, rwf: numAmount, wei: weiAmount, eth: ethAmount };
     }
-    
     if (type === 'repay') {
-      const loanStatusKey = loan ? LOAN_STATUS[Number(loan.status)]?.toLowerCase() : 'none';
-      if (loanStatusKey !== 'active') {
-        return { valid: false, error: 'No active loan to repay' };
-      }
-      if (loan && loanStatusKey === 'active') {
-        const remainingWei = BigInt(loan.remainingOwed);
-        const remainingRwf = Number(remainingWei / WEI_PER_RWF);
-        if (numAmount > remainingRwf) {
-          return { 
-            valid: false, 
-            error: `Amount exceeds remaining loan of ${remainingRwf.toLocaleString()} RWF` 
-          };
-        }
+      const lsk = loan ? LOAN_STATUS[Number(loan.status)]?.toLowerCase() : 'none';
+      if (lsk !== 'active') return { valid: false, error: 'No active loan to repay' };
+      if (loan && lsk === 'active') {
+        const remainingRwf = Number(BigInt(loan.remainingOwed) / WEI_PER_RWF);
+        if (numAmount > remainingRwf) return { valid: false, error: `Amount exceeds remaining loan of ${remainingRwf.toLocaleString()} RWF` };
       }
       return { valid: true, rwf: numAmount, wei: weiAmount, eth: ethAmount };
     }
-    
     if (type === 'withdraw') {
-      if (!member) {
-        return { valid: false, error: 'Not a registered member' };
-      }
-      const savingsWei = BigInt(member.savings);
-      if (weiAmount > savingsWei) {
-        return { valid: false, error: 'Insufficient savings balance' };
-      }
-      const loanStatusKey = loan ? LOAN_STATUS[Number(loan.status)]?.toLowerCase() : 'none';
-      if (loanStatusKey === 'active') {
-        return { valid: false, error: 'Repay active loan first before withdrawing' };
-      }
+      if (!member) return { valid: false, error: 'Not a registered member' };
+      if (weiAmount > BigInt(member.savings)) return { valid: false, error: 'Insufficient savings balance' };
+      const lsk = loan ? LOAN_STATUS[Number(loan.status)]?.toLowerCase() : 'none';
+      if (lsk === 'active') return { valid: false, error: 'Repay active loan first before withdrawing' };
       return { valid: true, rwf: numAmount, wei: weiAmount, eth: ethAmount };
     }
-    
     if (type === 'loan') {
-      if (!member) {
-        return { valid: false, error: 'Not a registered member' };
-      }
+      if (!member) return { valid: false, error: 'Not a registered member' };
       const maxLoanWei = BigInt(member.savings) * 3n;
-      if (weiAmount > maxLoanWei) {
-        const maxLoanRwf = Number(maxLoanWei / WEI_PER_RWF);
-        return { valid: false, error: `Maximum loan is ${maxLoanRwf.toLocaleString()} RWF` };
-      }
-      const loanStatusKey = loan ? LOAN_STATUS[Number(loan.status)]?.toLowerCase() : 'none';
-      if (loanStatusKey === 'active' || loanStatusKey === 'pending') {
-        return { valid: false, error: 'You already have an active or pending loan' };
-      }
+      if (weiAmount > maxLoanWei) return { valid: false, error: `Maximum loan is ${Number(maxLoanWei / WEI_PER_RWF).toLocaleString()} RWF` };
+      const lsk = loan ? LOAN_STATUS[Number(loan.status)]?.toLowerCase() : 'none';
+      if (lsk === 'active' || lsk === 'pending') return { valid: false, error: 'You already have an active or pending loan' };
       return { valid: true, rwf: numAmount, wei: weiAmount, eth: ethAmount };
     }
-    
     return { valid: false, error: 'Invalid transaction type' };
   };
 
   const tx = async (fn, successMsg, valueWei = null) => {
     setLoading(true);
     try {
-      let txPromise;
-      if (valueWei !== null) {
-        txPromise = fn(valueWei);
-      } else {
-        txPromise = fn();
-      }
-      
-      const t = await txPromise;
+      const t = await (valueWei !== null ? fn(valueWei) : fn());
       show('Transaction sent — waiting…', 'info');
       await t.wait();
       show(successMsg, 'success');
       await refreshAll(account);
     } catch (e) {
-      const reason = e.reason ||
-        e.error?.message ||
-        e.message?.match(/execution reverted: (.+?)"/)?.[1] ||
-        e.message?.slice(0, 160) ||
-        'Transaction failed';
+      const reason = e.reason || e.error?.message || e.message?.match(/execution reverted: (.+?)"/)?.[1] || e.message?.slice(0, 160) || 'Transaction failed';
       show(reason, 'error');
       console.error('Transaction error:', e);
     } finally {
@@ -336,7 +301,7 @@ export default function App() {
     try {
       const c = await getContract();
       const provider = getProvider();
-      
+
       const balance = await provider.getBalance(wallet);
       setEthBalance(ethers.formatEther(balance));
 
@@ -349,7 +314,9 @@ export default function App() {
         c.getCurrentTerm(),
       ]);
 
-      setIsAdmin(adminAddr && adminAddr.toLowerCase() === wallet.toLowerCase());
+      // ── Resolve from fresh data — NOT stale state ──
+      const adminMatch = adminAddr && adminAddr.toLowerCase() === wallet.toLowerCase();
+      setIsAdmin(adminMatch);
       setTotalPool(fmtETH(pool));
       setReservePool(fmtETH(reserve));
       setMemberCount(Number(mCount).toString());
@@ -360,51 +327,55 @@ export default function App() {
       const registered = m && m.isRegistered && m.isActive;
       setMember(registered ? m : null);
 
+      // ── Number() cast: ethers may return BigInt for uint8 ──
+      let resolvedRole = null;
+      if (registered && m.role !== undefined) {
+        resolvedRole = Number(m.role);
+        setUserRole(resolvedRole);
+        setIsAuthorizedApprover(isLeaderRole(resolvedRole));
+      } else {
+        setUserRole(null);
+        setIsAuthorizedApprover(false);
+      }
+
       if (registered) {
-        try {
-          const l = await c.getLoan(wallet);
-          setLoan(l);
-        } catch (err) {
-          setLoan(null);
-        }
+        try { setLoan(await c.getLoan(wallet)); } catch (_) { setLoan(null); }
       } else {
         setLoan(null);
       }
 
+      // Pending requests list (for admin view)
       const reqCount = Number(await c.loanRequestCount());
       if (reqCount > 0) {
         const reqs = [];
         for (let i = reqCount - 1; i >= Math.max(0, reqCount - 20); i--) {
           try {
             const r = await c.getLoanRequest(i);
-            if (r && !r.approved && !r.rejected) {
-              reqs.push({ id: i, ...r });
-            }
-          } catch (_) { }
+            if (r && !r.approved && !r.rejected) reqs.push({ id: i, ...r });
+          } catch (_) {}
         }
         setPendingReqs(reqs);
       }
-      
+
       await fetchAllMembers();
-      
+
+      // ── CRITICAL: pass freshly-resolved values, never read stale state ──
+      await fetchPendingApprovalsWithValues(wallet, adminMatch, resolvedRole);
+
     } catch (e) {
       console.error('refreshAll error:', e);
     }
-  }, [account, fetchAllMembers]);
+  }, [account, fetchAllMembers, fetchPendingApprovalsWithValues]);
 
   // ── Connect Wallet ────────────────────────────────────
   const connectWallet = async () => {
-    if (!window.ethereum) {
-      show('MetaMask not detected', 'error');
-      return;
-    }
+    if (!window.ethereum) { show('MetaMask not detected', 'error'); return; }
     try {
       const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
       setAccount(accounts[0]);
       await refreshAll(accounts[0]);
     } catch (e) {
       show('Connection rejected', 'error');
-      console.error(e);
     }
   };
 
@@ -412,15 +383,12 @@ export default function App() {
     const handleVisibilityChange = () => {
       if (!document.hidden && account) {
         fetchAllMembers();
+        if (!isAdmin && isLeaderRole(userRole)) fetchPendingApprovals();
       }
     };
-    
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [account, fetchAllMembers]);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [account, isAdmin, userRole, fetchAllMembers, fetchPendingApprovals]);
 
   useEffect(() => {
     if (!window.ethereum) return;
@@ -429,166 +397,110 @@ export default function App() {
       if (accs[0]) refreshAll(accs[0]);
     };
     window.ethereum.on('accountsChanged', handleAccountsChanged);
-    return () => {
-      window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
-    };
+    return () => window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
   }, [refreshAll]);
 
   // ── Transactions ──────────────────────────────────────
   const handleRegister = () => {
-    if (!isAdmin) {
-      show('Only admin can register members', 'error');
-      return;
-    }
+    if (!isAdmin) { show('Only admin can register members', 'error'); return; }
     tx(
-      async () => (await getContract(true)).register(regName, regEmail, regPhone, regWallet),
-      `Registered ${shortAddr(regWallet)} successfully!`
+      async () => (await getContract(true)).register(regName, regEmail, regPhone, regWallet, regRole),
+      `Registered ${shortAddr(regWallet)} as ${MEMBER_ROLES[regRole]} successfully!`
     );
-    setRegName('');
-    setRegEmail('');
-    setRegPhone('');
-    setRegWallet('');
+    setRegName(''); setRegEmail(''); setRegPhone(''); setRegWallet(''); setRegRole(0);
   };
 
   const handleContribute = () => {
-    const validation = validateRwfAmount(depositRwf, 'deposit');
-    if (!validation.valid) {
-      show(validation.error, 'error');
-      return;
-    }
-    
-    tx(
-      async (value) => (await getContract(true)).contribute({ value }),
-      `${validation.rwf.toLocaleString()} RWF contributed successfully!`,
-      validation.wei
-    );
-    
+    const v = validateRwfAmount(depositRwf, 'deposit');
+    if (!v.valid) { show(v.error, 'error'); return; }
+    tx(async (value) => (await getContract(true)).contribute({ value }), `${v.rwf.toLocaleString()} RWF contributed!`, v.wei);
     setDepositRwf('');
   };
 
   const handleWithdraw = () => {
-    const validation = validateRwfAmount(withdrawRwf, 'withdraw');
-    if (!validation.valid) {
-      show(validation.error, 'error');
-      return;
-    }
-    
-    tx(
-      async () => (await getContract(true)).withdrawSavings(validation.wei),
-      `${validation.rwf.toLocaleString()} RWF withdrawn successfully!`
-    );
-    
+    const v = validateRwfAmount(withdrawRwf, 'withdraw');
+    if (!v.valid) { show(v.error, 'error'); return; }
+    tx(async () => (await getContract(true)).withdrawSavings(v.wei), `${v.rwf.toLocaleString()} RWF withdrawn!`);
     setWithdrawRwf('');
   };
 
   const handleRequestLoan = () => {
-    const validation = validateRwfAmount(loanRwf, 'loan');
-    if (!validation.valid) {
-      show(validation.error, 'error');
-      return;
-    }
-    
-    tx(
-      async () => (await getContract(true)).requestLoan(validation.wei),
-      `Loan request for ${validation.rwf.toLocaleString()} RWF submitted!`
-    );
-    
+    const v = validateRwfAmount(loanRwf, 'loan');
+    if (!v.valid) { show(v.error, 'error'); return; }
+    tx(async () => (await getContract(true)).requestLoan(v.wei), `Loan request for ${v.rwf.toLocaleString()} RWF submitted!`);
     setLoanRwf('');
   };
 
   const handleRepay = () => {
-    const validation = validateRwfAmount(repayRwf, 'repay');
-    if (!validation.valid) {
-      show(validation.error, 'error');
-      return;
-    }
-    
-    tx(
-      async (value) => (await getContract(true)).repayLoan({ value }),
-      `${validation.rwf.toLocaleString()} RWF repayment successful!`,
-      validation.wei
-    );
-    
+    const v = validateRwfAmount(repayRwf, 'repay');
+    if (!v.valid) { show(v.error, 'error'); return; }
+    tx(async (value) => (await getContract(true)).repayLoan({ value }), `${v.rwf.toLocaleString()} RWF repayment successful!`, v.wei);
     setRepayRwf('');
   };
 
   const handleClaimDividends = () => tx(
-    async () => (await getContract(true)).claimDividends(),
-    'Dividends claimed!'
+    async () => (await getContract(true)).claimDividends(), 'Dividends claimed!'
   );
 
   const handleDistributeDividends = () => tx(
-    async () => (await getContract(true)).distributeDividends(),
-    'Dividends distributed!'
+    async () => (await getContract(true)).distributeDividends(), 'Dividends distributed!'
   );
 
-  const handleApproveLoan = (id) => tx(
-    async () => (await getContract(true)).approveLoan(id),
-    `Loan #${id} approved!`
-  );
+  // ── Approve loan ──────────────────────────────────────
+  // ✅ Correct ABI function name: approveLoan(uint256 _requestId)
+  const handleApproveLoan = async (requestId) => {
+    if (isAdmin || !isLeaderRole(userRole)) {
+      show('Only leaders (President, Accountant, Chief of Member) can approve loans', 'error');
+      return;
+    }
+    setLoading(true);
+    try {
+      const contract = await getContract(true);
+      const t = await contract.approveLoan(requestId);
+      show(`✓ Approving loan #${requestId}… waiting for confirmation`, 'info');
+      await t.wait();
+      show(`✅ Loan #${requestId} approved! Disbursed when 2 leaders approve.`, 'success');
+      await refreshAll(account);
+    } catch (e) {
+      const reason = e.reason || e.message?.slice(0, 160) || 'Transaction failed';
+      show(reason, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleRejectLoan = (id) => tx(
-    async () => (await getContract(true)).rejectLoan(id),
-    `Loan #${id} rejected.`
+    async () => (await getContract(true)).rejectLoan(id), `Loan #${id} rejected.`
   );
-  
-  const handleViewMember = (memberData) => {
-    setSelectedMember(memberData);
-    setShowMemberModal(true);
-  };
-  
-  const handleRefreshMembers = async () => {
-    setRefreshKey(prev => prev + 1);
-    await fetchAllMembers();
-    show('Member list refreshed!', 'success');
-  };
+
+  const handleViewMember = (memberData) => { setSelectedMember(memberData); setShowMemberModal(true); };
+  const handleRefreshMembers = async () => { await fetchAllMembers(); show('Member list refreshed!', 'success'); };
 
   // ── Derived Values ──────────────────────────────────
   const loanStatusKey = loan ? LOAN_STATUS[Number(loan.status)]?.toLowerCase() : 'none';
-  
-  const getSavingsRwf = () => {
-    if (!member) return '0';
-    return fmtRWFDisplay(member.savings);
-  };
-  
-  const getMaxLoanRwf = () => {
-    if (!member) return '0';
-    const maxLoanWei = BigInt(member.savings) * 3n;
-    const maxLoanRwf = maxLoanWei / WEI_PER_RWF;
-    return Number(maxLoanRwf).toLocaleString();
-  };
-  
-  const getPendingDividendsRwf = () => {
-    if (!member) return '0';
-    return fmtRWFDisplay(member.pendingDividends);
-  };
-  
+
+  const getSavingsRwf    = () => member ? fmtRWFDisplay(member.savings) : '0';
+  const getMaxLoanRwf    = () => member ? Number(BigInt(member.savings) * 3n / WEI_PER_RWF).toLocaleString() : '0';
+  const getPendingDivRwf = () => member ? fmtRWFDisplay(member.pendingDividends) : '0';
+
   const getTotalPoolRwf = () => {
     if (!totalPool || totalPool === '0') return '0';
-    const poolWei = BigInt(Math.floor(parseFloat(totalPool) * Number(WEI_PER_ETH)));
-    const poolRwf = poolWei / WEI_PER_RWF;
-    return Number(poolRwf).toLocaleString();
+    return Number(BigInt(Math.floor(parseFloat(totalPool) * Number(WEI_PER_ETH))) / WEI_PER_RWF).toLocaleString();
   };
-  
   const getReservePoolRwf = () => {
     if (!reservePool || reservePool === '0') return '0';
-    const reserveWei = BigInt(Math.floor(parseFloat(reservePool) * Number(WEI_PER_ETH)));
-    const reserveRwf = reserveWei / WEI_PER_RWF;
-    return Number(reserveRwf).toLocaleString();
+    return Number(BigInt(Math.floor(parseFloat(reservePool) * Number(WEI_PER_ETH))) / WEI_PER_RWF).toLocaleString();
   };
-  
   const getLoanRemainingRwf = () => {
     if (!loan || loanStatusKey !== 'active') return '0';
-    const remainingWei = BigInt(loan.remainingOwed);
-    const remainingRwf = remainingWei / WEI_PER_RWF;
-    return Number(remainingRwf).toLocaleString();
+    return Number(BigInt(loan.remainingOwed) / WEI_PER_RWF).toLocaleString();
   };
-  
+
   const hasDividends = member && member.pendingDividends && BigInt(member.pendingDividends) > 0n;
   const termPct = term ? termProgress(term.startTime, term.endTime) : 0;
   const minContributionRwf = Math.ceil(0.001 * ETH_RWF_RATE);
-  
-  const filteredMembers = allMembers.filter(m => 
+
+  const filteredMembers = allMembers.filter(m =>
     m.name.toLowerCase().includes(memberSearch.toLowerCase()) ||
     m.email.toLowerCase().includes(memberSearch.toLowerCase()) ||
     m.phone.includes(memberSearch) ||
@@ -596,29 +508,31 @@ export default function App() {
   );
 
   const dividendProjections = calculateDividendProjections();
-  const totalSavings = calculateTotalSavings();
-  const totalDividendPool = calculateTotalDividendPool();
+  const totalSavings        = calculateTotalSavings();
+  const totalDividendPool   = calculateTotalDividendPool();
+
+  const getUserRoleName = () => {
+    if (isAdmin) return 'Admin';
+    if (userRole !== undefined && userRole !== null) return MEMBER_ROLES[userRole] || 'Member';
+    return 'Member';
+  };
+
+  // ── Sidebar visibility — direct check on settled state ──
+  const showApprovalsLink = !isAdmin && isLeaderRole(userRole);
 
   // ── Render ────────────────────────────────────────────
   if (!account) {
     return (
       <div className="dashboard-layout">
         <header className="dashboard-header">
-          <div className="header-brand">
-            <h1>Ikimina</h1>
-            <span>Web3 Savings - RWF</span>
-          </div>
+          <div className="header-brand"><h1>Ikimina</h1><span>Web3 Savings - RWF</span></div>
         </header>
         <div className="connect-screen">
           <div className="connect-logo">🏦</div>
           <h2>Community Savings Pool</h2>
           <p>Save in RWF, powered by Ethereum. Connect your wallet to join the Ikimina savings group.</p>
-          <div className="rate-info">
-            💱 Fixed Rate: 1 ETH = {ETH_RWF_RATE.toLocaleString()} RWF
-          </div>
-          <button className="connect-btn-large" onClick={connectWallet}>
-            Connect Wallet
-          </button>
+          <div className="rate-info">💱 Fixed Rate: 1 ETH = {ETH_RWF_RATE.toLocaleString()} RWF</div>
+          <button className="connect-btn-large" onClick={connectWallet}>Connect Wallet</button>
         </div>
         <ToastContainer toasts={toasts} />
       </div>
@@ -629,12 +543,10 @@ export default function App() {
     <div className="dashboard-layout">
       {/* Header */}
       <header className="dashboard-header">
-        <div className="header-brand">
-          <h1>Ikimina</h1>
-          <span>Web3 Savings - RWF</span>
-        </div>
+        <div className="header-brand"><h1>Ikimina</h1><span>Web3 Savings - RWF</span></div>
         <div className="header-actions">
           {isAdmin && <span className="admin-badge">⚙ Admin</span>}
+          {!isAdmin && userRole !== null && userRole > 0 && <span className="role-badge">{getUserRoleName()}</span>}
           <span className="network-badge">Sepolia</span>
           <div className="eth-balance">
             <span className="balance-label">ETH Balance:</span>
@@ -667,6 +579,16 @@ export default function App() {
             <SidebarLink href="#dividends" active={currentPage === 'dividends'} onClick={() => setCurrentPage('dividends')}>
               📊 Dividends
             </SidebarLink>
+
+            {/* ✅ Loan Approvals — Leaders ONLY (role 1,2,3), NOT admin */}
+            {showApprovalsLink && (
+              <SidebarLink href="#approvals" active={currentPage === 'approvals'} onClick={() => setCurrentPage('approvals')}>
+                ✓ Loan Approvals
+                {pendingApprovals.length > 0 && <span className="nav-badge">{pendingApprovals.length}</span>}
+              </SidebarLink>
+            )}
+
+            {/* ⚙ Admin — deployer only */}
             {isAdmin && (
               <SidebarLink href="#admin" active={currentPage === 'admin'} onClick={() => setCurrentPage('admin')}>
                 ⚙ Admin
@@ -677,7 +599,8 @@ export default function App() {
 
         {/* Main Content */}
         <main className="dashboard-content">
-          {/* Profile Page */}
+
+          {/* ── Profile Page ── */}
           {currentPage === 'profile' && (
             <div className="page-section">
               <h1>My Profile</h1>
@@ -695,18 +618,14 @@ export default function App() {
                       <div className="profile-stats">
                         <span>📅 Joined: {new Date(Number(member.joinedAt) * 1000).toLocaleDateString()}</span>
                         <span>✅ Status: {member.isActive ? 'Active' : 'Inactive'}</span>
+                        <span>👔 Role: {getUserRoleName()}</span>
                       </div>
                     </div>
                     <div className="profile-wallet">
                       <div className="profile-wallet-label">Wallet Address</div>
                       <div className="profile-wallet-addr">
                         <span className="wallet-full">{account}</span>
-                        <button className="copy-btn" onClick={() => {
-                          navigator.clipboard.writeText(account);
-                          show('Copied!', 'success');
-                        }} title="Copy">
-                          ⎘
-                        </button>
+                        <button className="copy-btn" onClick={() => { navigator.clipboard.writeText(account); show('Copied!', 'success'); }} title="Copy">⎘</button>
                       </div>
                     </div>
                   </div>
@@ -740,7 +659,7 @@ export default function App() {
                     </div>
                     <div className="stat-card" style={{ '--accent-color': 'var(--amber)' }}>
                       <div className="stat-label">Pending Dividends</div>
-                      <div className="stat-value amber">{getPendingDividendsRwf()} RWF</div>
+                      <div className="stat-value amber">{getPendingDivRwf()} RWF</div>
                       <div className="stat-sub">≈ {member ? fmtETH(member.pendingDividends) : '0'} ETH</div>
                       <div className="stat-sub">Members: {memberCount}</div>
                     </div>
@@ -755,25 +674,20 @@ export default function App() {
             </div>
           )}
 
-          {/* Member Directory Page */}
+          {/* ── Member Directory ── */}
           {currentPage === 'members' && (
             <div className="page-section">
               <div className="member-directory-header">
                 <h1>Member Directory</h1>
-                <button 
-                  className="btn-refresh" 
-                  onClick={handleRefreshMembers}
-                  disabled={loadingMembers}
-                >
+                <button className="btn-refresh" onClick={handleRefreshMembers} disabled={loadingMembers}>
                   {loadingMembers ? '⟳ Loading...' : '🔄 Refresh'}
                 </button>
               </div>
-              
               <div className="member-directory-controls">
                 <div className="search-bar">
-                  <input 
-                    type="text" 
-                    placeholder="Search by name, email, phone, or address..." 
+                  <input
+                    type="text"
+                    placeholder="Search by name, email, phone, or address..."
                     value={memberSearch}
                     onChange={(e) => setMemberSearch(e.target.value)}
                   />
@@ -782,7 +696,6 @@ export default function App() {
                   Total Members: {allMembers.length} | Active: {allMembers.filter(m => m.isActive).length}
                 </div>
               </div>
-              
               {loadingMembers ? (
                 <div className="loading-state">
                   <div className="spinner-large"></div>
@@ -793,18 +706,12 @@ export default function App() {
                   <p>No members found in directory.</p>
                   {isAdmin ? (
                     <>
-                      <p>Use the Admin panel below to register members.</p>
-                      <button 
-                        className="btn-primary" 
-                        onClick={() => setCurrentPage('admin')}
-                        style={{ marginTop: '1rem', width: 'auto' }}
-                      >
+                      <p>Use the Admin panel to register members.</p>
+                      <button className="btn-primary" onClick={() => setCurrentPage('admin')} style={{ marginTop: '1rem', width: 'auto' }}>
                         Go to Admin Panel
                       </button>
                     </>
-                  ) : (
-                    <p>Ask the admin to register members.</p>
-                  )}
+                  ) : <p>Ask the admin to register members.</p>}
                 </div>
               ) : (
                 <div className="members-grid">
@@ -812,7 +719,10 @@ export default function App() {
                     <div key={idx} className="member-card" onClick={() => handleViewMember(m)}>
                       <div className="member-avatar">{m.name.charAt(0).toUpperCase()}</div>
                       <div className="member-info">
-                        <div className="member-name">{m.name}</div>
+                        <div className="member-name">
+                          {m.name}
+                          {m.role > 0 && <span className="role-tag">{MEMBER_ROLES[m.role]}</span>}
+                        </div>
                         <div className="member-details">
                           <span>📧 {m.email}</span>
                           <span>📞 {m.phone}</span>
@@ -831,7 +741,7 @@ export default function App() {
             </div>
           )}
 
-          {/* Member Detail Modal */}
+          {/* ── Member Detail Modal ── */}
           {showMemberModal && selectedMember && (
             <div className="modal-overlay" onClick={() => setShowMemberModal(false)}>
               <div className="modal-content" onClick={(e) => e.stopPropagation()}>
@@ -846,60 +756,35 @@ export default function App() {
                       <h3>{selectedMember.name}</h3>
                       <p>📧 {selectedMember.email}</p>
                       <p>📞 {selectedMember.phone}</p>
+                      <p>👔 Role: <strong>{MEMBER_ROLES[selectedMember.role] || 'Regular Member'}</strong></p>
                     </div>
                   </div>
-                  
                   <div className="detail-section">
                     <h4>Wallet Information</h4>
                     <div className="detail-row">
                       <span>Address:</span>
                       <code>{selectedMember.address}</code>
-                      <button className="copy-btn-small" onClick={() => {
-                        navigator.clipboard.writeText(selectedMember.address);
-                        show('Copied!', 'success');
-                      }}>Copy</button>
+                      <button className="copy-btn-small" onClick={() => { navigator.clipboard.writeText(selectedMember.address); show('Copied!', 'success'); }}>Copy</button>
                     </div>
                   </div>
-                  
                   <div className="detail-section">
                     <h4>Financial Summary</h4>
                     <div className="stats-mini-grid">
-                      <div className="stat-mini">
-                        <label>Savings</label>
-                        <value>{fmtRWFDisplay(selectedMember.savings)} RWF</value>
-                      </div>
-                      <div className="stat-mini">
-                        <label>Pending Dividends</label>
-                        <value>{fmtRWFDisplay(selectedMember.pendingDividends)} RWF</value>
-                      </div>
+                      <div className="stat-mini"><label>Savings</label><value>{fmtRWFDisplay(selectedMember.savings)} RWF</value></div>
+                      <div className="stat-mini"><label>Pending Dividends</label><value>{fmtRWFDisplay(selectedMember.pendingDividends)} RWF</value></div>
                       <div className="stat-mini">
                         <label>Status</label>
-                        <value className={selectedMember.isActive ? 'active' : 'inactive'}>
-                          {selectedMember.isActive ? 'Active' : 'Inactive'}
-                        </value>
+                        <value className={selectedMember.isActive ? 'active' : 'inactive'}>{selectedMember.isActive ? 'Active' : 'Inactive'}</value>
                       </div>
-                      <div className="stat-mini">
-                        <label>Joined</label>
-                        <value>{new Date(Number(selectedMember.joinedAt) * 1000).toLocaleDateString()}</value>
-                      </div>
+                      <div className="stat-mini"><label>Joined</label><value>{new Date(Number(selectedMember.joinedAt) * 1000).toLocaleDateString()}</value></div>
                     </div>
                   </div>
-                  
                   {selectedMember.hasActiveLoan && (
                     <div className="detail-section">
                       <h4>Loan Information</h4>
-                      <div className="detail-row">
-                        <span>Loan Amount:</span>
-                        <strong>{fmtRWFDisplay(selectedMember.loanAmount)} RWF</strong>
-                      </div>
-                      <div className="detail-row">
-                        <span>Total Owed:</span>
-                        <strong>{fmtRWFDisplay(selectedMember.loanTotalOwed)} RWF</strong>
-                      </div>
-                      <div className="detail-row">
-                        <span>Repaid:</span>
-                        <strong>{fmtRWFDisplay(selectedMember.loanAmountRepaid)} RWF</strong>
-                      </div>
+                      <div className="detail-row"><span>Loan Amount:</span><strong>{fmtRWFDisplay(selectedMember.loanAmount)} RWF</strong></div>
+                      <div className="detail-row"><span>Total Owed:</span><strong>{fmtRWFDisplay(selectedMember.loanTotalOwed)} RWF</strong></div>
+                      <div className="detail-row"><span>Repaid:</span><strong>{fmtRWFDisplay(selectedMember.loanAmountRepaid)} RWF</strong></div>
                       <div className="detail-row">
                         <span>Status:</span>
                         <span className={`loan-status ${selectedMember.loanStatus === 2 ? 'active' : 'pending'}`}>
@@ -913,7 +798,75 @@ export default function App() {
             </div>
           )}
 
-          {/* Savings Page */}
+          {/* ── Loan Approvals Page — Leaders ONLY ── */}
+          {currentPage === 'approvals' && showApprovalsLink && (
+            <div className="page-section">
+              <h1>Loan Approvals</h1>
+              <div className="approvals-info">
+                <div className="leader-info">
+                  <span className="role-badge">{getUserRoleName()}</span>
+                  <p>
+                    As <strong>{getUserRoleName()}</strong>, you can approve loan requests.
+                    Each loan requires <strong>2 leader approvals</strong> before disbursement.
+                  </p>
+                </div>
+              </div>
+              <div className="pending-requests">
+                <h2>Pending Loan Requests ({pendingApprovals.length})</h2>
+                {pendingApprovals.length === 0 ? (
+                  <div className="empty-state">
+                    <p>✅ No pending loan requests. You're all caught up!</p>
+                  </div>
+                ) : (
+                  pendingApprovals.map(r => {
+                    const memberInfo = allMembers.find(m => m.address.toLowerCase() === r.borrower?.toLowerCase());
+                    return (
+                      <div key={r.id} className="request-card">
+                        <div className="request-info">
+                          <div className="request-borrower">
+                            <strong>{memberInfo?.name || shortAddr(r.borrower)}</strong>
+                            <small>{shortAddr(r.borrower)}</small>
+                          </div>
+                          <div className="request-amount">{fmtRWFDisplay(r.amount)} RWF</div>
+                          <div className="request-date">{new Date(Number(r.requestedAt) * 1000).toLocaleString()}</div>
+                        </div>
+                        <div className="request-actions">
+                          <button
+                            className="btn-approve"
+                            onClick={() => handleApproveLoan(r.id)}
+                            disabled={loading}
+                          >
+                            {loading ? '⟳ Processing...' : `✓ Approve as ${getUserRoleName()}`}
+                          </button>
+                          <button
+                            className="btn-danger"
+                            onClick={() => handleRejectLoan(r.id)}
+                            disabled={loading}
+                            style={{ marginTop: '0.5rem' }}
+                          >
+                            ✕ Reject
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+              <div className="info-card">
+                <h3>📋 How Loan Approvals Work</h3>
+                <ul>
+                  <li><strong>Step 1:</strong> Member requests a loan</li>
+                  <li><strong>Step 2:</strong> Leaders (President, Accountant, Chief) review it</li>
+                  <li><strong>Step 3:</strong> Each leader clicks Approve</li>
+                  <li><strong>Step 4:</strong> When <strong>2 leaders approve</strong>, the loan is automatically disbursed</li>
+                  <li><strong>Step 5:</strong> Member receives funds in their wallet</li>
+                </ul>
+                <p className="info-note">💡 Multi-sig ensures community oversight and prevents single-point approval.</p>
+              </div>
+            </div>
+          )}
+
+          {/* ── Savings Page ── */}
           {currentPage === 'savings' && (
             <div className="page-section">
               <h1>Savings</h1>
@@ -921,18 +874,11 @@ export default function App() {
                 <div className="action-card" style={{ marginBottom: '1.25rem' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                     <span style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: '0.95rem' }}>Term #{term.termId?.toString() || '0'}</span>
-                    <span className={`loan-status ${term.distributed ? 'repaid' : 'active'}`}>
-                      {term.distributed ? 'Distributed' : 'Active'}
-                    </span>
+                    <span className={`loan-status ${term.distributed ? 'repaid' : 'active'}`}>{term.distributed ? 'Distributed' : 'Active'}</span>
                   </div>
                   <div className="term-bar-wrap">
-                    <div className="term-bar-label">
-                      <span>Progress</span>
-                      <span>{termPct}%</span>
-                    </div>
-                    <div className="term-bar">
-                      <div className="term-bar-fill" style={{ width: `${termPct}%` }} />
-                    </div>
+                    <div className="term-bar-label"><span>Progress</span><span>{termPct}%</span></div>
+                    <div className="term-bar"><div className="term-bar-fill" style={{ width: `${termPct}%` }} /></div>
                   </div>
                 </div>
               )}
@@ -942,46 +888,22 @@ export default function App() {
                   <p className="card-desc">Contribute to the pool. Minimum {minContributionRwf.toLocaleString()} RWF.</p>
                   <div className="input-group">
                     <label>Amount (RWF)</label>
-                    <input 
-                      type="number" 
-                      value={depositRwf} 
-                      onChange={(e) => setDepositRwf(e.target.value)} 
-                      placeholder={`e.g., ${minContributionRwf}`} 
-                      min={minContributionRwf} 
-                      step="1000" 
-                    />
+                    <input type="number" value={depositRwf} onChange={(e) => setDepositRwf(e.target.value)} placeholder={`e.g., ${minContributionRwf}`} min={minContributionRwf} step="1000" />
                   </div>
-                  {depositRwf && parseFloat(depositRwf) > 0 && (
-                    <div className="eth-equivalent">
-                      ≈ {rwfToEthString(depositRwf)} ETH
-                    </div>
-                  )}
+                  {depositRwf && parseFloat(depositRwf) > 0 && <div className="eth-equivalent">≈ {rwfToEthString(depositRwf)} ETH</div>}
                   <button className="btn-full" onClick={handleContribute} disabled={loading || !depositRwf}>
                     {loading ? <span className="spinner">⟳</span> : `Deposit ${depositRwf ? parseFloat(depositRwf).toLocaleString() : ''} RWF`}
                   </button>
                 </div>
                 <div className="action-card">
                   <h2>Withdraw Savings</h2>
-                  <p className="card-desc">Withdraw your savings. No active loan required.</p>
+                  <p className="card-desc">Withdraw your savings. Must have no active loan.</p>
                   <div className="input-group">
                     <label>Amount (RWF)</label>
-                    <input 
-                      type="number" 
-                      value={withdrawRwf} 
-                      onChange={(e) => setWithdrawRwf(e.target.value)} 
-                      placeholder="e.g., 25000" 
-                      min="1000" 
-                      step="1000" 
-                    />
+                    <input type="number" value={withdrawRwf} onChange={(e) => setWithdrawRwf(e.target.value)} placeholder="e.g., 25000" min="1000" step="1000" />
                   </div>
-                  {withdrawRwf && parseFloat(withdrawRwf) > 0 && (
-                    <div className="eth-equivalent">
-                      ≈ {rwfToEthString(withdrawRwf)} ETH
-                    </div>
-                  )}
-                  <div className="available-balance">
-                    Available: {getSavingsRwf()} RWF
-                  </div>
+                  {withdrawRwf && parseFloat(withdrawRwf) > 0 && <div className="eth-equivalent">≈ {rwfToEthString(withdrawRwf)} ETH</div>}
+                  <div className="available-balance">Available: {getSavingsRwf()} RWF</div>
                   <button className="btn-danger" onClick={handleWithdraw} disabled={loading || !withdrawRwf || loanStatusKey === 'active'}>
                     {loanStatusKey === 'active' ? 'Repay loan first' : loading ? <span className="spinner">⟳</span> : 'Withdraw'}
                   </button>
@@ -990,45 +912,31 @@ export default function App() {
             </div>
           )}
 
-          {/* Loans Page */}
+          {/* ── Loans Page ── */}
           {currentPage === 'loans' && (
             <div className="page-section">
               <h1>Loans</h1>
               <div className="actions-section">
                 <div className="action-card">
                   <h2>Request a Loan</h2>
-                  <p className="card-desc">Borrow up to 3× savings at 5% interest. Admin approval required.</p>
+                  <p className="card-desc">Borrow up to 3× savings at 5% interest. Requires 2 leader approvals.</p>
                   {loanStatusKey === 'active' || loanStatusKey === 'pending' ? (
                     <div className="loan-info">
                       <div className="loan-info-row"><span>Principal</span><span>{loan ? fmtRWFDisplay(loan.principal) : '0'} RWF</span></div>
                       <div className="loan-info-row"><span>Total Owed</span><span>{loan ? fmtRWFDisplay(loan.totalOwed) : '0'} RWF</span></div>
                       <div className="loan-info-row"><span>Repaid</span><span>{loan ? fmtRWFDisplay(loan.amountRepaid) : '0'} RWF</span></div>
                       <div className="loan-info-row"><span>Remaining</span><span style={{ color: 'var(--red)' }}>{getLoanRemainingRwf()} RWF</span></div>
-                      {loanStatusKey === 'active' && (
-                        <div className="loan-info-row"><span>Deadline</span><span>{new Date(Number(loan.deadline) * 1000).toLocaleDateString()}</span></div>
-                      )}
+                      {loanStatusKey === 'active' && <div className="loan-info-row"><span>Deadline</span><span>{new Date(Number(loan.deadline) * 1000).toLocaleDateString()}</span></div>}
+                      {loanStatusKey === 'pending' && <div className="loan-info-row"><span>Status</span><span>Waiting for 2 leader approvals</span></div>}
                     </div>
                   ) : (
                     <>
                       <div className="input-group">
                         <label>Loan Amount (RWF)</label>
-                        <input 
-                          type="number" 
-                          value={loanRwf} 
-                          onChange={(e) => setLoanRwf(e.target.value)} 
-                          placeholder="e.g., 100000" 
-                          min="10000" 
-                          step="10000" 
-                        />
+                        <input type="number" value={loanRwf} onChange={(e) => setLoanRwf(e.target.value)} placeholder="e.g., 100000" min="10000" step="10000" />
                       </div>
-                      {loanRwf && parseFloat(loanRwf) > 0 && (
-                        <div className="eth-equivalent">
-                          ≈ {rwfToEthString(loanRwf)} ETH
-                        </div>
-                      )}
-                      <div className="loan-limits">
-                        Max: {getMaxLoanRwf()} RWF · 5% interest · 30 days
-                      </div>
+                      {loanRwf && parseFloat(loanRwf) > 0 && <div className="eth-equivalent">≈ {rwfToEthString(loanRwf)} ETH</div>}
+                      <div className="loan-limits">Max: {getMaxLoanRwf()} RWF · 5% interest · 30 days</div>
                       <button className="btn-full" onClick={handleRequestLoan} disabled={loading || !loanRwf}>
                         {loading ? <span className="spinner">⟳</span> : `Request ${loanRwf ? parseFloat(loanRwf).toLocaleString() : ''} RWF`}
                       </button>
@@ -1037,29 +945,13 @@ export default function App() {
                 </div>
                 <div className="action-card">
                   <h2>Repay Loan</h2>
-                  <p className="card-desc">Partial or full repayment. Overpayment refunded. Any amount accepted.</p>
+                  <p className="card-desc">Partial or full repayment. Overpayment refunded.</p>
                   <div className="input-group">
                     <label>Repayment Amount (RWF)</label>
-                    <input 
-                      type="number" 
-                      value={repayRwf} 
-                      onChange={(e) => setRepayRwf(e.target.value)} 
-                      placeholder="Enter any amount" 
-                      min="1" 
-                      step="1000" 
-                      disabled={loanStatusKey !== 'active'} 
-                    />
+                    <input type="number" value={repayRwf} onChange={(e) => setRepayRwf(e.target.value)} placeholder="Enter any amount" min="1" step="1000" disabled={loanStatusKey !== 'active'} />
                   </div>
-                  {repayRwf && parseFloat(repayRwf) > 0 && loanStatusKey === 'active' && (
-                    <div className="eth-equivalent">
-                      ≈ {rwfToEthString(repayRwf)} ETH
-                    </div>
-                  )}
-                  {loanStatusKey === 'active' && (
-                    <div className="remaining-balance">
-                      Remaining: {getLoanRemainingRwf()} RWF
-                    </div>
-                  )}
+                  {repayRwf && parseFloat(repayRwf) > 0 && loanStatusKey === 'active' && <div className="eth-equivalent">≈ {rwfToEthString(repayRwf)} ETH</div>}
+                  {loanStatusKey === 'active' && <div className="remaining-balance">Remaining: {getLoanRemainingRwf()} RWF</div>}
                   <button className="btn-green" onClick={handleRepay} disabled={loading || loanStatusKey !== 'active' || !repayRwf}>
                     {loanStatusKey !== 'active' ? 'No Active Loan' : loading ? <span className="spinner">⟳</span> : `Repay ${repayRwf ? parseFloat(repayRwf).toLocaleString() : ''} RWF`}
                   </button>
@@ -1068,7 +960,7 @@ export default function App() {
             </div>
           )}
 
-          {/* Dividends Page with Projections */}
+          {/* ── Dividends Page ── */}
           {currentPage === 'dividends' && member && (
             <div className="page-section">
               <h1>Dividends</h1>
@@ -1077,7 +969,7 @@ export default function App() {
                   <h2>Your Dividends</h2>
                   <p className="card-desc">80% of term interest distributed pro-rata.</p>
                   <div className="loan-info">
-                    <div className="loan-info-row"><span>Pending</span><span style={{ color: 'var(--amber)' }}>{getPendingDividendsRwf()} RWF</span></div>
+                    <div className="loan-info-row"><span>Pending</span><span style={{ color: 'var(--amber)' }}>{getPendingDivRwf()} RWF</span></div>
                     <div className="loan-info-row"><span>Savings</span><span>{getSavingsRwf()} RWF</span></div>
                     <div className="loan-info-row"><span>Term Interest</span><span>{term ? fmtRWFDisplay(term.interestCollected) : '—'} RWF</span></div>
                   </div>
@@ -1085,7 +977,6 @@ export default function App() {
                     {!hasDividends ? 'No Dividends' : loading ? <span className="spinner">⟳</span> : 'Claim Dividends'}
                   </button>
                 </div>
-                
                 <div className="action-card">
                   <h2>Distribute Dividends</h2>
                   <p className="card-desc">Trigger distribution at term end.</p>
@@ -1104,19 +995,18 @@ export default function App() {
               {/* Dividend Projections Table */}
               <div className="dividend-projections">
                 <div className="projections-header">
-                  <h2>📊 Dividend Projections - What Everyone Will Get</h2>
+                  <h2>📊 Dividend Projections</h2>
                   <div className="projections-info">
                     <span>💰 Total Interest: {term ? fmtRWFDisplay(term.interestCollected) : '0'} RWF</span>
                     <span>🎯 Dividend Pool (80%): {totalDividendPool.toLocaleString()} RWF</span>
-                    <span>🏦 Reserve Pool (20%): {term ? fmtRWFDisplay(BigInt(Math.floor(Number(term.interestCollected) * 0.2 * Number(WEI_PER_ETH)))) : '0'} RWF</span>
                   </div>
                 </div>
-                
                 <div className="projections-table-wrapper">
                   <table className="projections-table">
                     <thead>
                       <tr>
                         <th>Member</th>
+                        <th>Role</th>
                         <th>Savings (RWF)</th>
                         <th>% of Pool</th>
                         <th>Projected Dividend</th>
@@ -1136,13 +1026,14 @@ export default function App() {
                               {proj.address.toLowerCase() === account?.toLowerCase() && <span className="you-badge">You</span>}
                             </div>
                           </td>
+                          <td className="text-center">
+                            <span className={`role-badge-small ${proj.role > 0 ? 'leader' : ''}`}>{proj.roleName}</span>
+                          </td>
                           <td className="text-right">{proj.savingsRwf.toLocaleString()} RWF</td>
                           <td className="text-center">{proj.percentage}%</td>
                           <td className="text-right gold">{proj.projectedDividend.toLocaleString()} RWF</td>
                           <td className="text-center">
-                            <span className={`status-badge ${proj.isActive ? 'active' : 'inactive'}`}>
-                              {proj.isActive ? 'Active' : 'Inactive'}
-                            </span>
+                            <span className={`status-badge ${proj.isActive ? 'active' : 'inactive'}`}>{proj.isActive ? 'Active' : 'Inactive'}</span>
                           </td>
                         </tr>
                       ))}
@@ -1150,6 +1041,7 @@ export default function App() {
                     <tfoot>
                       <tr className="total-row">
                         <td><strong>Total</strong></td>
+                        <td></td>
                         <td className="text-right"><strong>{totalSavings.toLocaleString()} RWF</strong></td>
                         <td className="text-center"><strong>100%</strong></td>
                         <td className="text-right"><strong>{totalDividendPool.toLocaleString()} RWF</strong></td>
@@ -1158,34 +1050,26 @@ export default function App() {
                     </tfoot>
                   </table>
                 </div>
-                
-                {term && term.distributed && (
-                  <div className="alert alert-success">
-                    ✅ Dividends for Term #{term.termId?.toString()} have been distributed!
-                  </div>
+                {term?.distributed && (
+                  <div className="alert alert-success">✅ Dividends for Term #{term.termId?.toString()} have been distributed!</div>
                 )}
-                
                 {term && !term.distributed && termPct >= 100 && (
-                  <div className="alert alert-warning">
-                    ⏰ Term has ended! Click "Distribute Dividends" above to distribute.
-                  </div>
+                  <div className="alert alert-warning">⏰ Term has ended! Click "Distribute Dividends" above to distribute.</div>
                 )}
-                
-                {term && !term.distributed && (Number(fmtRWF(term.interestCollected)) === 0) && (
-                  <div className="alert alert-info">
-                    💡 No interest collected yet. Dividends will appear here when members repay loans with interest.
-                  </div>
+                {term && !term.distributed && Number(fmtRWF(term.interestCollected)) === 0 && (
+                  <div className="alert alert-info">💡 No interest collected yet. Dividends appear when members repay loans with interest.</div>
                 )}
               </div>
             </div>
           )}
 
-          {/* Admin Page */}
+          {/* ── Admin Page ── */}
           {currentPage === 'admin' && isAdmin && (
             <div className="page-section">
               <h1>Admin Panel</h1>
               <div className="action-card">
                 <h2>Register New Member</h2>
+                <p className="card-desc">Assign a role to determine approval authority.</p>
                 <div className="register-form">
                   <div className="input-group">
                     <label>Wallet Address</label>
@@ -1203,18 +1087,27 @@ export default function App() {
                     <label>Phone Number</label>
                     <input value={regPhone} onChange={(e) => setRegPhone(e.target.value)} placeholder="+250 788 123 456" />
                   </div>
+                  <div className="input-group">
+                    <label>Member Role</label>
+                    <select value={regRole} onChange={(e) => setRegRole(parseInt(e.target.value))}>
+                      <option value={0}>Regular Member</option>
+                      <option value={1}>President (Can approve loans)</option>
+                      <option value={2}>Accountant (Can approve loans)</option>
+                      <option value={3}>Chief of Member (Can approve loans)</option>
+                    </select>
+                  </div>
                 </div>
                 <button className="btn-full" onClick={handleRegister} disabled={loading || !regWallet || !regName || !regEmail || !regPhone}>
                   {loading ? <span className="spinner">⟳</span> : 'Register Member'}
                 </button>
               </div>
-              
-              <div className="pending-requests">
-                <h2>Pending Loan Requests ({pendingReqs.length})</h2>
-                {pendingReqs.length === 0 ? (
-                  <div className="empty-state">No pending requests</div>
-                ) : (
-                  pendingReqs.map(r => {
+
+              {/* Pending requests visible to admin (read-only / reject only) */}
+              {pendingReqs.length > 0 && (
+                <div className="action-card" style={{ marginTop: '1.5rem' }}>
+                  <h2>Pending Loan Requests ({pendingReqs.length})</h2>
+                  <p className="card-desc">Awaiting leader approvals. Admin can only reject.</p>
+                  {pendingReqs.map(r => {
                     const memberInfo = allMembers.find(m => m.address.toLowerCase() === r.borrower?.toLowerCase());
                     return (
                       <div key={r.id} className="request-card">
@@ -1227,16 +1120,29 @@ export default function App() {
                           <div className="request-date">{new Date(Number(r.requestedAt) * 1000).toLocaleString()}</div>
                         </div>
                         <div className="request-actions">
-                          <button className="btn-approve" onClick={() => handleApproveLoan(r.id)}>✓ Approve</button>
-                          <button className="btn-reject" onClick={() => handleRejectLoan(r.id)}>✕ Reject</button>
+                          <button className="btn-danger" onClick={() => handleRejectLoan(r.id)} disabled={loading}>
+                            ✕ Reject
+                          </button>
                         </div>
                       </div>
                     );
-                  })
-                )}
+                  })}
+                </div>
+              )}
+
+              <div className="info-card" style={{ marginTop: '1.5rem' }}>
+                <h3>📋 Role Information</h3>
+                <ul>
+                  <li><strong>President</strong> — Can approve loan requests</li>
+                  <li><strong>Accountant</strong> — Can approve loan requests</li>
+                  <li><strong>Chief of Member</strong> — Can approve loan requests</li>
+                  <li><strong>Regular Member</strong> — Standard member, no approval authority</li>
+                </ul>
+                <p className="info-note">Loan requests require approval from at least 2 leaders before disbursement.</p>
               </div>
             </div>
           )}
+
         </main>
       </div>
 
@@ -1255,17 +1161,10 @@ export default function App() {
   );
 }
 
-// ── Sidebar Link Component ─────────────────────────────
+// ── Sidebar Link ──────────────────────────────────────
 function SidebarLink({ href, active, onClick, children }) {
   return (
-    <a 
-      href={href} 
-      className={`sidebar-link ${active ? 'active' : ''}`} 
-      onClick={(e) => {
-        e.preventDefault();
-        onClick();
-      }}
-    >
+    <a href={href} className={`sidebar-link ${active ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); onClick(); }}>
       {children}
     </a>
   );

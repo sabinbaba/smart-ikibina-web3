@@ -1,18 +1,14 @@
-# Project TODO
+# NPM & Compile Fixes Complete ✅
 
-## Layout Refactor
+**NPM Status:**
 
-- [ ] Refactor App.jsx to header/sidebar/main/footer layout
-- [ ] Update App.css with sidebar styles + grid
-- [ ] Test responsive sidebar collapse
-- [ ] Verify admin register form accessible via sidebar nav
+- [x] Clean install (ERESOLVE fixed)
+- [x] npm audit fix (safe vulns addressed)
+- [x] Verified audit (37 remaining need --force, avoided to prevent Hardhat breaks)
 
-## Deploy Sepolia
+**Compile Plan:**
 
-- [x] Deployed: 0x504a63D2d571A3751B5d785f992f43Dcfe11aD3C
-- [x] Updated config.js
+- [ ] Fix IkiminaV1.sol OZ import (approved)
+- [ ] Test: npx hardhat compile
 
-## Features
-
-- [x] Admin-only registration (wallet input)
-- [ ] Full wallet-based login/view profile
+**Goal:** Clean npm + compilable contracts.

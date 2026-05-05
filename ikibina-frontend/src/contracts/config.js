@@ -68,14 +68,23 @@
 
 
 
+// contracts/config.js
 
-export const CONTRACT_ADDRESS = "0x6B556d24647a74880302E0BE8036bA3DDBF77c74";
+// ── NEW UPGRADEABLE PROXY ADDRESS (IkiminaV1) ──
+export const CONTRACT_ADDRESS = "0x04D16753355413F83272E4a53406D3C8564f1593";
 
 // RWF is the savings currency shown in UI.
 // ETH is used ONLY to pay gas fees on-chain.
-// Each "contribute" tx sends a negligible fixed ETH amount just to trigger the contract.
 export const ETH_GAS_PER_CONTRIBUTE = "0.000001"; // ~0.000001 ETH per save tx (gas only)
-export const RWF_EXCHANGE_RATE       = 1300;       // 1 USD ≈ 1300 RWF (display only)
+export const RWF_EXCHANGE_RATE = 8500; // 1 ETH ≈ 8,500,000 RWF (fixed rate for display)
+
+// Member Roles
+export const MEMBER_ROLES = {
+  0: "Regular Member",
+  1: "President",
+  2: "Accountant",
+  3: "Chief of Member"
+};
 
 // Fake Mobile Money providers — NO real API calls
 export const MOMO_PROVIDERS = [
@@ -84,35 +93,84 @@ export const MOMO_PROVIDERS = [
   { id: "equity", name: "Equity Bank",      color: "#1565C0", prefix: "076" },
 ];
 
+// ── UPDATED ABI FOR IKIMINAV1 (Upgradeable with Roles) ──
 export const ABI = [
-  "function register(string calldata _name, string calldata _email, string calldata _phone, address _wallet) external",
+  // Member Management
+  "function register(string calldata _name, string calldata _email, string calldata _phone, address _wallet, uint8 _role) external",
+  "function updateMemberRole(address _wallet, uint8 _newRole) external",
   "function removeMember(address _wallet) external",
+  
+  // Savings
   "function contribute() external payable",
   "function withdrawSavings(uint256 _amount) external",
+  
+  // Loan Workflow
   "function requestLoan(uint256 _amount) external returns (uint256 requestId)",
   "function approveLoan(uint256 _requestId) external",
   "function rejectLoan(uint256 _requestId) external",
   "function repayLoan() external payable",
   "function flagDefault(address _borrower) external",
+  
+  // Dividends
   "function distributeDividends() external",
   "function claimDividends() external",
+  
+  // Admin
   "function initiateAdminTransfer(address _newAdmin) external",
   "function acceptAdminTransfer() external",
   "function pause() external",
   "function unpause() external",
-  "function getMember(address _wallet) external view returns (string memory name, string memory email, string memory phone, bool isRegistered, bool isActive, uint256 savings, uint256 pendingDividends, uint256 joinedAt)",
+  "function emergencyWithdraw(address _to, uint256 _amount) external",
+  "function upgradeVersion(string memory _newVersion) external",
+  
+  // View Functions - Member
+  "function getMember(address _wallet) external view returns (string memory name, string memory email, string memory phone, bool isRegistered, bool isActive, uint256 savings, uint256 pendingDividends, uint256 joinedAt, uint8 role)",
+  "function getMemberRole(address _wallet) external view returns (uint8)",
+  "function isLeader(address _wallet) external view returns (bool)",
+  "function getMemberList() external view returns (address[])",
+  
+  // View Functions - Loan
   "function getLoan(address _wallet) external view returns (uint256 principal, uint256 totalOwed, uint256 amountRepaid, uint256 remainingOwed, uint256 deadline, uint8 status)",
   "function getLoanRequest(uint256 _requestId) external view returns (address borrower, uint256 amount, uint256 requestedAt, bool approved, bool rejected)",
+  "function loanRequestCount() external view returns (uint256)",
+  "function maxLoanAmount(address _wallet) external view returns (uint256)",
+  
+  // View Functions - Pool & Terms
   "function getCurrentTerm() external view returns (uint256 termId, uint256 startTime, uint256 endTime, uint256 interestCollected, bool distributed)",
-  "function contractBalance() external view returns (uint256)",
   "function totalPool() external view returns (uint256)",
   "function reservePool() external view returns (uint256)",
   "function memberCount() external view returns (uint256)",
+  "function contractBalance() external view returns (uint256)",
   "function admin() external view returns (address)",
-  "function getMemberList() external view returns (address[])",
-  "function loanRequestCount() external view returns (uint256)"
+  
+  // Safety Limits
+  "function getPoolBasedMaxLoan() external view returns (uint256)",
+  "function getAvailableLoanCapacity() external view returns (uint256)",
+  "function qualifiesForAutoApproval(address _member, uint256 _amount) external view returns (bool)",
+  
+  // Constants
+  "function LOAN_MULTIPLIER() external view returns (uint256)",
+  "function INTEREST_BPS() external view returns (uint256)",
+  "function LOAN_DURATION() external view returns (uint256)",
+  "function MIN_CONTRIBUTION() external view returns (uint256)",
+  
+  // Version
+  "function version() external view returns (string memory)",
+  "function lastUpgradeTimestamp() external view returns (uint256)"
 ];
 
 export const LOAN_STATUS = {
-  0: "None", 1: "Pending", 2: "Active", 3: "Repaid", 4: "Defaulted"
+  0: "None",
+  1: "Pending",
+  2: "Active",
+  3: "Repaid",
+  4: "Defaulted"
+};
+
+// Pool safety constants (matching smart contract)
+export const POOL_SAFETY = {
+  MAX_LOAN_PERCENTAGE: 50,      // Max 50% of pool per loan
+  REQUIRED_RESERVE_PERCENTAGE: 30, // Keep 30% reserve
+  AUTO_APPROVAL_MAX_PERCENTAGE: 10, // Auto-approve up to 10% of pool
+  NEW_MEMBER_TENURE_DAYS: 30    // 30 days tenure required for auto-approval
 };

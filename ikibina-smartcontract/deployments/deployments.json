@@ -3,73 +3,29 @@
     "chainId": 11155111,
     "history": [
       {
-        "contract": "Ikimina",
-        "address": "0x6B556d24647a74880302E0BE8036bA3DDBF77c74",
+        "contract": "IkiminaV1",
+        "proxyAddress": "0x04D16753355413F83272E4a53406D3C8564f1593",
+        "implementationAddress": "0x64CcA5C8fe070a6d69FCcB9a333C87d53F19eBb3",
         "deployer": "0x2D3C3085a3Bbd6Ca0fBf88668B188e60c2624142",
-        "txHash": "0xb80484a924ec9d6e21412fcb6580f385f277a9b60f2db5cb0919a803812bdb4c",
-        "deployedAt": "2026-05-05T03:52:24.371Z",
-        "loanMultiplier": "3",
-        "interestBps": "500"
-      },
-      {
-        "contract": "Ikimina",
-        "address": "0x504a63D2d571A3751B5d785f992f43Dcfe11aD3C",
-        "deployer": "0x2D3C3085a3Bbd6Ca0fBf88668B188e60c2624142",
-        "txHash": "0x9e22dc4cb085b129a962b905843105655aaa7e1634dc2fc9e4653191f659210b",
-        "deployedAt": "2026-05-04T16:54:36.279Z",
-        "loanMultiplier": "3",
-        "interestBps": "500"
-      },
-      {
-        "contract": "Ikimina",
-        "address": "0x8c90aF1945CAabd9575dBd68E68DFf45Cd96d189",
-        "deployer": "0x2D3C3085a3Bbd6Ca0fBf88668B188e60c2624142",
-        "txHash": "0x6152e6c856848214229d4b1633acd41aee5c22f970b62577a031d04d7f070e42",
-        "deployedAt": "2026-05-04T15:36:47.040Z",
-        "loanMultiplier": "3",
-        "interestBps": "500"
-      },
-      {
-        "contract": "Ikimina",
-        "address": "0x23241639CD5885E559655a08C7882f4eA15054B8",
-        "deployer": "0x2D3C3085a3Bbd6Ca0fBf88668B188e60c2624142",
-        "txHash": "0x32c47f0409c89911fad8f894a171908b3c0155782d6c3b93bb5486bfce330d20",
-        "deployedAt": "2026-05-04T14:09:11.241Z",
-        "loanMultiplier": "3",
-        "interestBps": "500"
+        "txHash": "0x535fadf43f4f24db6c5234e3dd084910704edd03222fc8261a58d80edd8329e2",
+        "deployedAt": "2026-05-05T11:57:59.986Z",
+        "version": "1.0.0",
+        "isUpgradeable": true,
+        "network": "sepolia",
+        "chainId": 11155111
       }
     ],
     "latest": {
-      "contract": "Ikimina",
-      "address": "0x6B556d24647a74880302E0BE8036bA3DDBF77c74",
+      "contract": "IkiminaV1",
+      "proxyAddress": "0x04D16753355413F83272E4a53406D3C8564f1593",
+      "implementationAddress": "0x64CcA5C8fe070a6d69FCcB9a333C87d53F19eBb3",
       "deployer": "0x2D3C3085a3Bbd6Ca0fBf88668B188e60c2624142",
-      "txHash": "0xb80484a924ec9d6e21412fcb6580f385f277a9b60f2db5cb0919a803812bdb4c",
-      "deployedAt": "2026-05-05T03:52:24.371Z",
-      "loanMultiplier": "3",
-      "interestBps": "500"
-    }
-  },
-  "localhost": {
-    "chainId": 31337,
-    "history": [
-      {
-        "contract": "Ikimina",
-        "address": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
-        "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-        "txHash": "0xa642f827e94531e9068ec52658bc3e43eac22c4e71b5af58909650c8bc81541d",
-        "deployedAt": "2026-05-04T16:50:54.323Z",
-        "loanMultiplier": "3",
-        "interestBps": "500"
-      }
-    ],
-    "latest": {
-      "contract": "Ikimina",
-      "address": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
-      "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-      "txHash": "0xa642f827e94531e9068ec52658bc3e43eac22c4e71b5af58909650c8bc81541d",
-      "deployedAt": "2026-05-04T16:50:54.323Z",
-      "loanMultiplier": "3",
-      "interestBps": "500"
+      "txHash": "0x535fadf43f4f24db6c5234e3dd084910704edd03222fc8261a58d80edd8329e2",
+      "deployedAt": "2026-05-05T11:57:59.986Z",
+      "version": "1.0.0",
+      "isUpgradeable": true,
+      "network": "sepolia",
+      "chainId": 11155111
     }
   }
 }
