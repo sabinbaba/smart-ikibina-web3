@@ -71,7 +71,7 @@
 // contracts/config.js
 
 // ── NEW UPGRADEABLE PROXY ADDRESS (IkiminaV1) ──
-export const CONTRACT_ADDRESS = "0x04D16753355413F83272E4a53406D3C8564f1593";
+export const CONTRACT_ADDRESS = "0xC56833a0D5D79C249D612948434D6f0f065424D9";
 
 // RWF is the savings currency shown in UI.
 // ETH is used ONLY to pay gas fees on-chain.

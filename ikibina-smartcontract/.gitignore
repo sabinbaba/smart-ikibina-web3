@@ -1,1 +1,3 @@
 node_modules/\n.DS_Store\n.env\n*.log\n\n# Hardhat\ncache/\nartifacts/\n.typechain/\n\n# Logs\nnpm-debug.log*\nnpm-debug.log.\n\n# Dependency directories\n**/node_modules\n
+ikibina-smartcontract/cache/
+ikibina-smartcontract/artifacts/
