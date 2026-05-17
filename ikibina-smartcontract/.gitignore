@@ -1,3 +1,22 @@
-node_modules/\n.DS_Store\n.env\n*.log\n\n# Hardhat\ncache/\nartifacts/\n.typechain/\n\n# Logs\nnpm-debug.log*\nnpm-debug.log.\n\n# Dependency directories\n**/node_modules\n
-ikibina-smartcontract/cache/
-ikibina-smartcontract/artifacts/
+# Dependency directories
+node_modules/
+
+# Recursively ignore node_modules anywhere under this folder
+**/node_modules/
+
+# Hardhat
+cache/
+artifacts/
+.typechain/
+
+# Logs
+.DS_Store
+.env
+*.log
+npm-debug.log*
+npm-debug.log.
+
+# Extra project outputs (if present)
+cache/
+artifacts/
+

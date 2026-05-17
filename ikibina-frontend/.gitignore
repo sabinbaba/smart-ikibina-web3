@@ -1,1 +1,18 @@
-node_modules/\n.DS_Store\n.env\n*.log\n\n# Vite\n/dist\n\n# Logs\nnpm-debug.log*\nnpm-debug.log.\n\n# Dependency directories\n**/node_modules\n
+# Dependency directories
+node_modules/
+
+# Recursively ignore node_modules anywhere under this folder
+**/node_modules/
+
+# Misc
+.DS_Store
+.env
+*.log
+
+# Vite
+/dist
+
+# Logs
+npm-debug.log*
+npm-debug.log.
+
