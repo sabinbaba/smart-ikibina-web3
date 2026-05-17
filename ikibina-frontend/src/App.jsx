@@ -83,8 +83,16 @@ export default function App() {
   const [loanRwf,    setLoanRwf]    = useState('');
   const [repayRwf,   setRepayRwf]   = useState('');
 
-  // ── contract helpers ──────────────────────────────────
-  const getProvider = () => new ethers.BrowserProvider(window.ethereum);
+  // ── wallet/provider helpers ────────────────────────────
+  const hasInjectedProvider = () => typeof window !== 'undefined' && !!window.ethereum;
+
+  const getProvider = () => {
+    if (!hasInjectedProvider()) {
+      throw new Error('Wallet provider not found (window.ethereum is missing)');
+    }
+    return new ethers.BrowserProvider(window.ethereum);
+  };
+
   const getContract = async (write = false) => {
     const p = getProvider();
     return new ethers.Contract(CONTRACT_ADDRESS, ABI, write ? await p.getSigner() : p);
@@ -133,7 +141,7 @@ export default function App() {
 
   // ── All members ───────────────────────────────────────
   const fetchAllMembers = useCallback(async () => {
-    if (!account || !window.ethereum) return;
+    if (!account || !hasInjectedProvider()) return;
     setLoadingMembers(true);
     try {
       const c = await getContract();
@@ -286,12 +294,20 @@ export default function App() {
 
   // ── Connect wallet ────────────────────────────────────
   const connectWallet = async () => {
-    if (!window.ethereum) { show('MetaMask not detected', 'error'); return; }
+    if (!hasInjectedProvider()) {
+      show(
+        'Wallet not detected (window.ethereum missing). Install MetaMask or ensure it is enabled.',
+        'error'
+      );
+      return;
+    }
     try {
       const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
       setAccount(accounts[0]);
       await refreshAll(accounts[0]);
-    } catch { show('Connection rejected', 'error'); }
+    } catch {
+      show('Connection rejected', 'error');
+    }
   };
 
   useEffect(() => {
@@ -306,8 +322,11 @@ export default function App() {
   }, [account, isAdmin, userRole, fetchAllMembers, fetchPendingApprovals]);
 
   useEffect(() => {
-    if (!window.ethereum) return;
-    const onAccChange = (accs) => { setAccount(accs[0] || null); if (accs[0]) refreshAll(accs[0]); };
+    if (!hasInjectedProvider()) return;
+    const onAccChange = (accs) => {
+      setAccount(accs[0] || null);
+      if (accs[0]) refreshAll(accs[0]);
+    };
     window.ethereum.on('accountsChanged', onAccChange);
     return () => window.ethereum.removeListener('accountsChanged', onAccChange);
   }, [refreshAll]);

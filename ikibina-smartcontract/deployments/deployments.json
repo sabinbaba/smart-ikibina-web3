@@ -4,6 +4,18 @@
     "history": [
       {
         "contract": "IkiminaV1",
+        "proxyAddress": "0xc126A871140411e7ED903f31969cE799B66e4396",
+        "implementationAddress": "0x5726DbA3FE979b9e5a67dA505Ca6C2fC27ea5339",
+        "deployer": "0x2D3C3085a3Bbd6Ca0fBf88668B188e60c2624142",
+        "txHash": "0xa86212cb99fb4281d6486ad454ddd8c28a2b89d644b1c774fe716ce1884f8db3",
+        "deployedAt": "2026-05-17T04:00:04.141Z",
+        "version": "1.0.0",
+        "isUpgradeable": true,
+        "network": "sepolia",
+        "chainId": 11155111
+      },
+      {
+        "contract": "IkiminaV1",
         "proxyAddress": "0xC56833a0D5D79C249D612948434D6f0f065424D9",
         "implementationAddress": "0x64CcA5C8fe070a6d69FCcB9a333C87d53F19eBb3",
         "deployer": "0x2D3C3085a3Bbd6Ca0fBf88668B188e60c2624142",
@@ -29,11 +41,11 @@
     ],
     "latest": {
       "contract": "IkiminaV1",
-      "proxyAddress": "0xC56833a0D5D79C249D612948434D6f0f065424D9",
-      "implementationAddress": "0x64CcA5C8fe070a6d69FCcB9a333C87d53F19eBb3",
+      "proxyAddress": "0xc126A871140411e7ED903f31969cE799B66e4396",
+      "implementationAddress": "0x5726DbA3FE979b9e5a67dA505Ca6C2fC27ea5339",
       "deployer": "0x2D3C3085a3Bbd6Ca0fBf88668B188e60c2624142",
-      "txHash": "0xe14519121e0592caac86be342419a87dc8ac9149444a7c9c1c7d9f9a1f25933d",
-      "deployedAt": "2026-05-06T06:55:46.455Z",
+      "txHash": "0xa86212cb99fb4281d6486ad454ddd8c28a2b89d644b1c774fe716ce1884f8db3",
+      "deployedAt": "2026-05-17T04:00:04.141Z",
       "version": "1.0.0",
       "isUpgradeable": true,
       "network": "sepolia",

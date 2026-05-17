@@ -2,8 +2,8 @@
   "_format": "hh-sol-cache-2",
   "files": {
     "/home/baba/Desktop/ikibina-web3/ikibina-smartcontract/contracts/Ikimina.sol": {
-      "lastModificationDate": 1777963958564,
-      "contentHash": "77ce54983cca02f80dedc278c8471d33",
+      "lastModificationDate": 1778989340740,
+      "contentHash": "48af7f65c6194df23d52cb5d76fef0f3",
       "sourceName": "contracts/Ikimina.sol",
       "solcConfig": {
         "version": "0.8.24",
@@ -41,8 +41,8 @@
       ]
     },
     "/home/baba/Desktop/ikibina-web3/ikibina-smartcontract/contracts/IkiminaV1.sol": {
-      "lastModificationDate": 1778049268404,
-      "contentHash": "6bca78cdb01b89b27bb56648b3dd64e1",
+      "lastModificationDate": 1778990259036,
+      "contentHash": "40725a25b35bbb1415132e33d9459a2f",
       "sourceName": "contracts/IkiminaV1.sol",
       "solcConfig": {
         "version": "0.8.24",

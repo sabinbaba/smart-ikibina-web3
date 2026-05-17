@@ -20,6 +20,11 @@
       "address": "0xC56833a0D5D79C249D612948434D6f0f065424D9",
       "txHash": "0xe14519121e0592caac86be342419a87dc8ac9149444a7c9c1c7d9f9a1f25933d",
       "kind": "uups"
+    },
+    {
+      "address": "0xc126A871140411e7ED903f31969cE799B66e4396",
+      "txHash": "0xa86212cb99fb4281d6486ad454ddd8c28a2b89d644b1c774fe716ce1884f8db3",
+      "kind": "uups"
     }
   ],
   "impls": {
@@ -448,6 +453,484 @@
             "numberOfBytes": "256"
           },
           "t_struct(Term)3460_storage": {
+            "label": "struct IkiminaV1.Term",
+            "members": [
+              {
+                "label": "startTime",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "endTime",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "1"
+              },
+              {
+                "label": "interestCollected",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "2"
+              },
+              {
+                "label": "distributed",
+                "type": "t_bool",
+                "offset": 0,
+                "slot": "3"
+              }
+            ],
+            "numberOfBytes": "128"
+          },
+          "t_uint256": {
+            "label": "uint256",
+            "numberOfBytes": "32"
+          },
+          "t_uint8": {
+            "label": "uint8",
+            "numberOfBytes": "1"
+          }
+        },
+        "namespaces": {}
+      }
+    },
+    "149898b6964c32d2549cbe70faa5778f7bacde615d1c91ccb0cdbfc6005447ca": {
+      "address": "0x5726DbA3FE979b9e5a67dA505Ca6C2fC27ea5339",
+      "txHash": "0x44fbe30fa768749bdb04ed3339e539dd56d35d956d59202bc05c8b30bed5e3a9",
+      "layout": {
+        "solcVersion": "0.8.24",
+        "storage": [
+          {
+            "label": "_initialized",
+            "offset": 0,
+            "slot": "0",
+            "type": "t_uint8",
+            "contract": "Initializable",
+            "src": "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol:63",
+            "retypedFrom": "bool"
+          },
+          {
+            "label": "_initializing",
+            "offset": 1,
+            "slot": "0",
+            "type": "t_bool",
+            "contract": "Initializable",
+            "src": "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol:68"
+          },
+          {
+            "label": "__gap",
+            "offset": 0,
+            "slot": "1",
+            "type": "t_array(t_uint256)50_storage",
+            "contract": "ERC1967UpgradeUpgradeable",
+            "src": "@openzeppelin/contracts-upgradeable/proxy/ERC1967/ERC1967UpgradeUpgradeable.sol:169"
+          },
+          {
+            "label": "__gap",
+            "offset": 0,
+            "slot": "51",
+            "type": "t_array(t_uint256)50_storage",
+            "contract": "UUPSUpgradeable",
+            "src": "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol:111"
+          },
+          {
+            "label": "__gap",
+            "offset": 0,
+            "slot": "101",
+            "type": "t_array(t_uint256)50_storage",
+            "contract": "ContextUpgradeable",
+            "src": "@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol:40"
+          },
+          {
+            "label": "_owner",
+            "offset": 0,
+            "slot": "151",
+            "type": "t_address",
+            "contract": "OwnableUpgradeable",
+            "src": "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol:22"
+          },
+          {
+            "label": "__gap",
+            "offset": 0,
+            "slot": "152",
+            "type": "t_array(t_uint256)49_storage",
+            "contract": "OwnableUpgradeable",
+            "src": "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol:94"
+          },
+          {
+            "label": "_status",
+            "offset": 0,
+            "slot": "201",
+            "type": "t_uint256",
+            "contract": "ReentrancyGuardUpgradeable",
+            "src": "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol:38"
+          },
+          {
+            "label": "__gap",
+            "offset": 0,
+            "slot": "202",
+            "type": "t_array(t_uint256)49_storage",
+            "contract": "ReentrancyGuardUpgradeable",
+            "src": "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol:88"
+          },
+          {
+            "label": "_paused",
+            "offset": 0,
+            "slot": "251",
+            "type": "t_bool",
+            "contract": "PausableUpgradeable",
+            "src": "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol:29"
+          },
+          {
+            "label": "__gap",
+            "offset": 0,
+            "slot": "252",
+            "type": "t_array(t_uint256)49_storage",
+            "contract": "PausableUpgradeable",
+            "src": "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol:116"
+          },
+          {
+            "label": "admin",
+            "offset": 0,
+            "slot": "301",
+            "type": "t_address",
+            "contract": "IkiminaV1",
+            "src": "contracts/IkiminaV1.sol:101"
+          },
+          {
+            "label": "pendingAdmin",
+            "offset": 0,
+            "slot": "302",
+            "type": "t_address",
+            "contract": "IkiminaV1",
+            "src": "contracts/IkiminaV1.sol:103"
+          },
+          {
+            "label": "totalPool",
+            "offset": 0,
+            "slot": "303",
+            "type": "t_uint256",
+            "contract": "IkiminaV1",
+            "src": "contracts/IkiminaV1.sol:104"
+          },
+          {
+            "label": "reservePool",
+            "offset": 0,
+            "slot": "304",
+            "type": "t_uint256",
+            "contract": "IkiminaV1",
+            "src": "contracts/IkiminaV1.sol:104"
+          },
+          {
+            "label": "memberCount",
+            "offset": 0,
+            "slot": "305",
+            "type": "t_uint256",
+            "contract": "IkiminaV1",
+            "src": "contracts/IkiminaV1.sol:106"
+          },
+          {
+            "label": "currentTermId",
+            "offset": 0,
+            "slot": "306",
+            "type": "t_uint256",
+            "contract": "IkiminaV1",
+            "src": "contracts/IkiminaV1.sol:107"
+          },
+          {
+            "label": "members",
+            "offset": 0,
+            "slot": "307",
+            "type": "t_mapping(t_address,t_struct(Member)3484_storage)",
+            "contract": "IkiminaV1",
+            "src": "contracts/IkiminaV1.sol:109"
+          },
+          {
+            "label": "loans",
+            "offset": 0,
+            "slot": "308",
+            "type": "t_mapping(t_address,t_struct(Loan)3496_storage)",
+            "contract": "IkiminaV1",
+            "src": "contracts/IkiminaV1.sol:110"
+          },
+          {
+            "label": "loanRequests",
+            "offset": 0,
+            "slot": "309",
+            "type": "t_mapping(t_uint256,t_struct(LoanRequest)3507_storage)",
+            "contract": "IkiminaV1",
+            "src": "contracts/IkiminaV1.sol:112"
+          },
+          {
+            "label": "terms",
+            "offset": 0,
+            "slot": "310",
+            "type": "t_mapping(t_uint256,t_struct(Term)3516_storage)",
+            "contract": "IkiminaV1",
+            "src": "contracts/IkiminaV1.sol:114"
+          },
+          {
+            "label": "memberList",
+            "offset": 0,
+            "slot": "311",
+            "type": "t_array(t_address)dyn_storage",
+            "contract": "IkiminaV1",
+            "src": "contracts/IkiminaV1.sol:115"
+          },
+          {
+            "label": "loanRequestCount",
+            "offset": 0,
+            "slot": "312",
+            "type": "t_uint256",
+            "contract": "IkiminaV1",
+            "src": "contracts/IkiminaV1.sol:116"
+          },
+          {
+            "label": "autoApprovedCount",
+            "offset": 0,
+            "slot": "313",
+            "type": "t_uint256",
+            "contract": "IkiminaV1",
+            "src": "contracts/IkiminaV1.sol:119"
+          },
+          {
+            "label": "manuallyApprovedCount",
+            "offset": 0,
+            "slot": "314",
+            "type": "t_uint256",
+            "contract": "IkiminaV1",
+            "src": "contracts/IkiminaV1.sol:119"
+          },
+          {
+            "label": "version",
+            "offset": 0,
+            "slot": "315",
+            "type": "t_string_storage",
+            "contract": "IkiminaV1",
+            "src": "contracts/IkiminaV1.sol:120"
+          },
+          {
+            "label": "lastUpgradeTimestamp",
+            "offset": 0,
+            "slot": "316",
+            "type": "t_uint256",
+            "contract": "IkiminaV1",
+            "src": "contracts/IkiminaV1.sol:121"
+          },
+          {
+            "label": "canAddMembers",
+            "offset": 0,
+            "slot": "317",
+            "type": "t_mapping(t_address,t_bool)",
+            "contract": "IkiminaV1",
+            "src": "contracts/IkiminaV1.sol:232"
+          }
+        ],
+        "types": {
+          "t_address": {
+            "label": "address",
+            "numberOfBytes": "20"
+          },
+          "t_array(t_address)dyn_storage": {
+            "label": "address[]",
+            "numberOfBytes": "32"
+          },
+          "t_array(t_uint256)49_storage": {
+            "label": "uint256[49]",
+            "numberOfBytes": "1568"
+          },
+          "t_array(t_uint256)50_storage": {
+            "label": "uint256[50]",
+            "numberOfBytes": "1600"
+          },
+          "t_bool": {
+            "label": "bool",
+            "numberOfBytes": "1"
+          },
+          "t_enum(LoanStatus)3457": {
+            "label": "enum IkiminaV1.LoanStatus",
+            "members": [
+              "None",
+              "Pending",
+              "Active",
+              "Repaid",
+              "Defaulted"
+            ],
+            "numberOfBytes": "1"
+          },
+          "t_enum(MemberRole)3462": {
+            "label": "enum IkiminaV1.MemberRole",
+            "members": [
+              "Regular",
+              "President",
+              "Accountant",
+              "ChiefOfMember"
+            ],
+            "numberOfBytes": "1"
+          },
+          "t_mapping(t_address,t_bool)": {
+            "label": "mapping(address => bool)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_address,t_struct(Loan)3496_storage)": {
+            "label": "mapping(address => struct IkiminaV1.Loan)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_address,t_struct(Member)3484_storage)": {
+            "label": "mapping(address => struct IkiminaV1.Member)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_uint256,t_struct(LoanRequest)3507_storage)": {
+            "label": "mapping(uint256 => struct IkiminaV1.LoanRequest)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_uint256,t_struct(Term)3516_storage)": {
+            "label": "mapping(uint256 => struct IkiminaV1.Term)",
+            "numberOfBytes": "32"
+          },
+          "t_string_storage": {
+            "label": "string",
+            "numberOfBytes": "32"
+          },
+          "t_struct(Loan)3496_storage": {
+            "label": "struct IkiminaV1.Loan",
+            "members": [
+              {
+                "label": "principal",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "totalOwed",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "1"
+              },
+              {
+                "label": "amountRepaid",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "2"
+              },
+              {
+                "label": "deadline",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "3"
+              },
+              {
+                "label": "status",
+                "type": "t_enum(LoanStatus)3457",
+                "offset": 0,
+                "slot": "4"
+              }
+            ],
+            "numberOfBytes": "160"
+          },
+          "t_struct(LoanRequest)3507_storage": {
+            "label": "struct IkiminaV1.LoanRequest",
+            "members": [
+              {
+                "label": "borrower",
+                "type": "t_address",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "amount",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "1"
+              },
+              {
+                "label": "requestedAt",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "2"
+              },
+              {
+                "label": "approved",
+                "type": "t_bool",
+                "offset": 0,
+                "slot": "3"
+              },
+              {
+                "label": "rejected",
+                "type": "t_bool",
+                "offset": 1,
+                "slot": "3"
+              }
+            ],
+            "numberOfBytes": "128"
+          },
+          "t_struct(Member)3484_storage": {
+            "label": "struct IkiminaV1.Member",
+            "members": [
+              {
+                "label": "name",
+                "type": "t_string_storage",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "email",
+                "type": "t_string_storage",
+                "offset": 0,
+                "slot": "1"
+              },
+              {
+                "label": "phone",
+                "type": "t_string_storage",
+                "offset": 0,
+                "slot": "2"
+              },
+              {
+                "label": "wallet",
+                "type": "t_address",
+                "offset": 0,
+                "slot": "3"
+              },
+              {
+                "label": "isRegistered",
+                "type": "t_bool",
+                "offset": 20,
+                "slot": "3"
+              },
+              {
+                "label": "isActive",
+                "type": "t_bool",
+                "offset": 21,
+                "slot": "3"
+              },
+              {
+                "label": "savings",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "4"
+              },
+              {
+                "label": "pendingDividends",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "5"
+              },
+              {
+                "label": "joinedAt",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "6"
+              },
+              {
+                "label": "role",
+                "type": "t_enum(MemberRole)3462",
+                "offset": 0,
+                "slot": "7"
+              }
+            ],
+            "numberOfBytes": "256"
+          },
+          "t_struct(Term)3516_storage": {
             "label": "struct IkiminaV1.Term",
             "members": [
               {
