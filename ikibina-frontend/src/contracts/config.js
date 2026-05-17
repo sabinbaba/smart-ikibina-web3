@@ -142,6 +142,9 @@ export const ABI = [
   "function memberCount() external view returns (uint256)",
   "function contractBalance() external view returns (uint256)",
   "function admin() external view returns (address)",
+  "function canAddMembers(address) external view returns (bool)",
+  
+
   
   // Safety Limits
   "function getPoolBasedMaxLoan() external view returns (uint256)",

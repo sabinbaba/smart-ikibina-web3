@@ -41,7 +41,9 @@ export default function App() {
   // wallet / identity
   const [account,              setAccount]              = useState(null);
   const [isAdmin,              setIsAdmin]              = useState(false);
+  const [canRegisterMembers,  setCanRegisterMembers]  = useState(false);
   const [userRole,             setUserRole]             = useState(null);
+
   const [isAuthorizedApprover, setIsAuthorizedApprover] = useState(false);
   const [loading,              setLoading]              = useState(false);
   const [ethBalance,           setEthBalance]           = useState('0');
@@ -247,6 +249,19 @@ export default function App() {
 
       const adminMatch = adminAddr?.toLowerCase() === wallet.toLowerCase();
       setIsAdmin(adminMatch);
+
+      // register authorization can be admin OR any memberAdder (canAddMembers)
+      // (contract uses onlyAdminOrMemberAdder)
+      let canRegister = false;
+      try {
+        // expects ABI for canAddMembers(address)
+        canRegister = await c.canAddMembers(wallet);
+      } catch (e) {
+        // fallback: keep admin-only behavior if method isn't in ABI
+        canRegister = adminMatch;
+      }
+      setCanRegisterMembers(!!canRegister);
+
       setTotalPool(fmtETH(pool));
       setReservePool(fmtETH(reserve));
       setMemberCount(Number(mCount).toString());
@@ -333,7 +348,7 @@ export default function App() {
 
   // ── Transaction handlers ──────────────────────────────
   const handleRegister = () => {
-    if (!isAdmin) { show('Only admin can register members', 'error'); return; }
+    if (!canRegisterMembers) { show('You are not authorized to register members', 'error'); return; }
     tx(async () => (await getContract(true)).register(regName, regEmail, regPhone, regWallet, regRole),
       `Registered ${shortAddr(regWallet)} as ${MEMBER_ROLES[regRole]}!`);
     setRegName(''); setRegEmail(''); setRegPhone(''); setRegWallet(''); setRegRole(0);
@@ -463,7 +478,7 @@ export default function App() {
       <header className="dashboard-header">
         <div className="header-brand"><h1>Ikimina</h1><span>Web3 Savings - RWF</span></div>
         <div className="header-actions">
-          {isAdmin && <span className="admin-badge">⚙ Admin</span>}
+          {(isAdmin || canRegisterMembers) && <span className="admin-badge">⚙ Admin</span>}
           {!isAdmin && userRole > 0 && <span className="role-badge">{getUserRoleName()}</span>}
           <span className="network-badge">Sepolia</span>
           <div className="eth-balance">
@@ -497,7 +512,7 @@ export default function App() {
               </SidebarLink>
             )}
 
-            {isAdmin && (
+            {(isAdmin || canRegisterMembers) && (
               <SidebarLink href="#admin" active={currentPage==='admin'} onClick={()=>setCurrentPage('admin')}>⚙ Admin</SidebarLink>
             )}
           </nav>
@@ -602,7 +617,7 @@ export default function App() {
               ) : allMembers.length === 0 ? (
                 <div className="empty-state">
                   <p>No members found.</p>
-                  {isAdmin
+              {(isAdmin || canRegisterMembers)
                     ? <button className="btn-primary" onClick={()=>setCurrentPage('admin')} style={{marginTop:'1rem',width:'auto'}}>Go to Admin Panel</button>
                     : <p>Ask the admin to register members.</p>}
                 </div>
@@ -939,7 +954,7 @@ export default function App() {
           )}
 
           {/* Admin */}
-          {currentPage === 'admin' && isAdmin && (
+          {currentPage === 'admin' && canRegisterMembers && (
             <div className="page-section">
               <h1>Admin Panel</h1>
               <div className="action-card">
