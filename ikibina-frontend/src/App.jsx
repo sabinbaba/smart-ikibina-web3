@@ -496,6 +496,19 @@ export default function App() {
         {/* ── Sidebar ── */}
         <aside className="dashboard-sidebar">
           <nav className="sidebar-nav">
+            {/* Only registered active members can see activity pages */}
+            {(() => {
+              const canSeeActivity = !!member; 
+              if (!canSeeActivity) {
+                return (
+                  <SidebarLink href="#profile" active={currentPage==='profile'} onClick={()=>setCurrentPage('profile')}>
+                    👤 My Profile
+                  </SidebarLink>
+                );
+              }
+              return null;
+            })()}
+
             <SidebarLink href="#profile"   active={currentPage==='profile'}   onClick={()=>setCurrentPage('profile')}>👤 My Profile</SidebarLink>
             <SidebarLink href="#members"   active={currentPage==='members'}   onClick={()=>setCurrentPage('members')}>
               👥 Member Directory {allMembers.length > 0 && <span className="nav-badge">{allMembers.length}</span>}
