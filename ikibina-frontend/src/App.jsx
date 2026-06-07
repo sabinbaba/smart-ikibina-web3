@@ -39,35 +39,34 @@ export default function App() {
   const { toasts, show } = useToast();
 
   // wallet / identity
-  const [account,              setAccount]              = useState(null);
-  const [isAdmin,              setIsAdmin]              = useState(false);
+  const [account,             setAccount]             = useState(null);
+  const [isAdmin,             setIsAdmin]             = useState(false);
   const [canRegisterMembers,  setCanRegisterMembers]  = useState(false);
-  const [userRole,             setUserRole]             = useState(null);
+  const [userRole,            setUserRole]            = useState(null);
 
   const [isAuthorizedApprover, setIsAuthorizedApprover] = useState(false);
   const [loading,              setLoading]              = useState(false);
   const [ethBalance,           setEthBalance]           = useState('0');
 
   // contract state
-  const [member,       setMember]       = useState(null);
-  const [loan,         setLoan]         = useState(null);
-  const [term,         setTerm]         = useState(null);
-  const [totalPool,    setTotalPool]    = useState('0');
-  const [reservePool,  setReservePool]  = useState('0');
-  const [memberCount,  setMemberCount]  = useState('0');
-  const [contractBal,  setContractBal]  = useState('0');
-  const [pendingReqs,  setPendingReqs]  = useState([]);
+  const [member,      setMember]      = useState(null);
+  const [loan,        setLoan]        = useState(null);
+  const [term,        setTerm]        = useState(null);
+  const [totalPool,   setTotalPool]   = useState('0');
+  const [reservePool, setReservePool] = useState('0');
+  const [memberCount, setMemberCount] = useState('0');
+  const [contractBal, setContractBal] = useState('0');
+  const [pendingReqs, setPendingReqs] = useState([]);
 
-  // approvals — only requests the current leader CAN act on
-  // (borrower !== self)
+  // approvals — only requests the current leader CAN act on (borrower !== self)
   const [pendingApprovals, setPendingApprovals] = useState([]);
 
   // members
-  const [allMembers,     setAllMembers]     = useState([]);
-  const [selectedMember, setSelectedMember] = useState(null);
-  const [memberSearch,   setMemberSearch]   = useState('');
-  const [showMemberModal,setShowMemberModal] = useState(false);
-  const [loadingMembers, setLoadingMembers] = useState(false);
+  const [allMembers,      setAllMembers]      = useState([]);
+  const [selectedMember,  setSelectedMember]  = useState(null);
+  const [memberSearch,    setMemberSearch]    = useState('');
+  const [showMemberModal, setShowMemberModal] = useState(false);
+  const [loadingMembers,  setLoadingMembers]  = useState(false);
 
   // nav
   const [currentPage, setCurrentPage] = useState('profile');
@@ -80,10 +79,10 @@ export default function App() {
   const [regRole,   setRegRole]   = useState(0);
 
   // amounts
-  const [depositRwf, setDepositRwf] = useState('');
-  const [withdrawRwf,setWithdrawRwf] = useState('');
-  const [loanRwf,    setLoanRwf]    = useState('');
-  const [repayRwf,   setRepayRwf]   = useState('');
+  const [depositRwf,  setDepositRwf]  = useState('');
+  const [withdrawRwf, setWithdrawRwf] = useState('');
+  const [loanRwf,     setLoanRwf]     = useState('');
+  const [repayRwf,    setRepayRwf]    = useState('');
 
   // ── wallet/provider helpers ────────────────────────────
   const hasInjectedProvider = () => typeof window !== 'undefined' && !!window.ethereum;
@@ -101,8 +100,6 @@ export default function App() {
   };
 
   // ── Fetch pending approvals ───────────────────────────
-  // Key rule: skip any request where borrower === walletAddr
-  // (a leader cannot approve their own loan)
   const fetchPendingApprovalsWithValues = useCallback(async (walletAddr, adminMatch, resolvedRole) => {
     if (adminMatch || !isLeaderRole(resolvedRole)) return;
     try {
@@ -114,10 +111,7 @@ export default function App() {
         try {
           const r = await c.getLoanRequest(i);
           if (!r || r.approved || r.rejected) continue;
-
-          // ✅ Skip if this leader IS the borrower — they cannot approve their own loan
           if (r.borrower?.toLowerCase() === walletAddr.toLowerCase()) continue;
-
           approvals.push({
             id: i,
             borrower: r.borrower,
@@ -198,6 +192,14 @@ export default function App() {
     }
     if (type === 'withdraw') {
       if (!member) return { valid: false, error: 'Not a registered member' };
+      // Block withdrawals until the current term has ended
+      if (term) {
+        const now = Math.floor(Date.now() / 1000);
+        if (now < Number(term.endTime)) {
+          const endDate = new Date(Number(term.endTime) * 1000).toLocaleDateString();
+          return { valid: false, error: `Withdrawals open after term ends on ${endDate}` };
+        }
+      }
       if (wei > BigInt(member.savings)) return { valid: false, error: 'Insufficient savings balance' };
       if (loan && LOAN_STATUS[Number(loan.status)]?.toLowerCase() === 'active')
         return { valid: false, error: 'Repay active loan first' };
@@ -250,14 +252,10 @@ export default function App() {
       const adminMatch = adminAddr?.toLowerCase() === wallet.toLowerCase();
       setIsAdmin(adminMatch);
 
-      // register authorization can be admin OR any memberAdder (canAddMembers)
-      // (contract uses onlyAdminOrMemberAdder)
       let canRegister = false;
       try {
-        // expects ABI for canAddMembers(address)
         canRegister = await c.canAddMembers(wallet);
       } catch (e) {
-        // fallback: keep admin-only behavior if method isn't in ABI
         canRegister = adminMatch;
       }
       setCanRegisterMembers(!!canRegister);
@@ -286,7 +284,6 @@ export default function App() {
         try { setLoan(await c.getLoan(wallet)); } catch (_) { setLoan(null); }
       } else { setLoan(null); }
 
-      // pending reqs for admin display
       const reqCount = Number(await c.loanRequestCount());
       if (reqCount > 0) {
         const reqs = [];
@@ -300,12 +297,18 @@ export default function App() {
       }
 
       await fetchAllMembers();
-
-      // ✅ Pass fresh values — never read stale React state here
       await fetchPendingApprovalsWithValues(wallet, adminMatch, resolvedRole);
 
     } catch (e) { console.error('refreshAll error:', e); }
   }, [account, fetchAllMembers, fetchPendingApprovalsWithValues]);
+
+  // ── Navigate with refresh ────────────────────────────
+  const navigateTo = useCallback((page) => {
+    setCurrentPage(page);
+    if (account) {
+      refreshAll(account);
+    }
+  }, [account, refreshAll]);
 
   // ── Connect wallet ────────────────────────────────────
   const connectWallet = async () => {
@@ -357,7 +360,32 @@ export default function App() {
   const handleContribute = () => {
     const v = validateRwfAmount(depositRwf, 'deposit');
     if (!v.valid) { show(v.error, 'error'); return; }
-    tx(async (value) => (await getContract(true)).contribute({ value }), `${v.rwf.toLocaleString()} RWF contributed!`, v.wei);
+
+    // ── Daily save window: 08:00 → midnight, once per calendar day ──
+    const now = new Date();
+    const hour = now.getHours();
+    if (hour < 8) {
+      show(`Deposits open at 08:00. Current time: ${now.toLocaleTimeString()}.`, 'error');
+      return;
+    }
+
+    const todayKey = now.toISOString().slice(0, 10); // "YYYY-MM-DD"
+    const storageKey = `ikimina_deposit_${account?.toLowerCase()}_${todayKey}`;
+    if (localStorage.getItem(storageKey)) {
+      show('You have already made your deposit for today. Come back tomorrow after 08:00.', 'error');
+      return;
+    }
+
+    // Mark deposit for today BEFORE sending tx (prevents double-click)
+    localStorage.setItem(storageKey, '1');
+
+    tx(async (value) => (await getContract(true)).contribute({ value }),
+      `${v.rwf.toLocaleString()} RWF contributed!`, v.wei)
+      .catch(() => {
+        // If tx fails, remove the lock so they can try again
+        localStorage.removeItem(storageKey);
+      });
+
     setDepositRwf('');
   };
 
@@ -382,13 +410,10 @@ export default function App() {
     setRepayRwf('');
   };
 
-  const handleClaimDividends    = () => tx(async () => (await getContract(true)).claimDividends(),      'Dividends claimed!');
+  const handleClaimDividends      = () => tx(async () => (await getContract(true)).claimDividends(),       'Dividends claimed!');
   const handleDistributeDividends = () => tx(async () => (await getContract(true)).distributeDividends(), 'Dividends distributed!');
 
   // ── Approve loan ──────────────────────────────────────
-  // Uses ABI function: approveLoan(uint256 _requestId)
-  // Guard: leader cannot approve their own loan — enforced in fetchPendingApprovalsWithValues
-  // (their own request never appears in pendingApprovals), but we double-check here too.
   const handleApproveLoan = async (requestId, borrowerAddr) => {
     if (isAdmin || !isLeaderRole(userRole)) {
       show('Only leaders can approve loans', 'error'); return;
@@ -412,23 +437,65 @@ export default function App() {
   const handleRejectLoan = (id) =>
     tx(async () => (await getContract(true)).rejectLoan(id), `Loan #${id} rejected.`);
 
-  const handleViewMember    = (m) => { setSelectedMember(m); setShowMemberModal(true); };
+  const handleViewMember     = (m) => { setSelectedMember(m); setShowMemberModal(true); };
   const handleRefreshMembers = async () => { await fetchAllMembers(); show('Member list refreshed!', 'success'); };
 
   // ── Derived helpers ───────────────────────────────────
-  const loanStatusKey     = loan ? LOAN_STATUS[Number(loan.status)]?.toLowerCase() : 'none';
-  const getSavingsRwf     = () => member ? fmtRWFDisplay(member.savings) : '0';
-  const getMaxLoanRwf     = () => member ? Number(BigInt(member.savings) * 3n / WEI_PER_RWF).toLocaleString() : '0';
-  const getPendingDivRwf  = () => member ? fmtRWFDisplay(member.pendingDividends) : '0';
-  const getLoanRemRwf     = () => (loan && loanStatusKey === 'active') ? Number(BigInt(loan.remainingOwed) / WEI_PER_RWF).toLocaleString() : '0';
-  const getTotalPoolRwf   = () => totalPool === '0' ? '0' : Number(BigInt(Math.floor(parseFloat(totalPool) * Number(WEI_PER_ETH))) / WEI_PER_RWF).toLocaleString();
-  const getReserveRwf     = () => reservePool === '0' ? '0' : Number(BigInt(Math.floor(parseFloat(reservePool) * Number(WEI_PER_ETH))) / WEI_PER_RWF).toLocaleString();
-  const getUserRoleName   = () => isAdmin ? 'Admin' : (userRole != null ? MEMBER_ROLES[userRole] || 'Member' : 'Member');
+  const loanStatusKey    = loan ? LOAN_STATUS[Number(loan.status)]?.toLowerCase() : 'none';
+  const getSavingsRwf    = () => member ? fmtRWFDisplay(member.savings) : '0';
+  const getMaxLoanRwf    = () => member ? Number(BigInt(member.savings) * 3n / WEI_PER_RWF).toLocaleString() : '0';
+  const getPendingDivRwf = () => member ? fmtRWFDisplay(member.pendingDividends) : '0';
+  const getLoanRemRwf    = () => (loan && loanStatusKey === 'active') ? Number(BigInt(loan.remainingOwed) / WEI_PER_RWF).toLocaleString() : '0';
+  const getTotalPoolRwf  = () => totalPool === '0' ? '0' : Number(BigInt(Math.floor(parseFloat(totalPool) * Number(WEI_PER_ETH))) / WEI_PER_RWF).toLocaleString();
+  const getReserveRwf    = () => reservePool === '0' ? '0' : Number(BigInt(Math.floor(parseFloat(reservePool) * Number(WEI_PER_ETH))) / WEI_PER_RWF).toLocaleString();
+  const getUserRoleName  = () => isAdmin ? 'Admin' : (userRole != null ? MEMBER_ROLES[userRole] || 'Member' : 'Member');
 
-  const hasDividends       = member && BigInt(member.pendingDividends || 0) > 0n;
-  const termPct            = term ? termProgress(term.startTime, term.endTime) : 0;
-  const minContribRwf      = Math.ceil(0.001 * ETH_RWF_RATE);
-  const showApprovalsLink  = !isAdmin && isLeaderRole(userRole);
+  const hasDividends      = member && BigInt(member.pendingDividends || 0) > 0n;
+  const termPct           = term ? termProgress(term.startTime, term.endTime) : 0;
+  const minContribRwf     = Math.ceil(0.001 * ETH_RWF_RATE);
+  const showApprovalsLink = !isAdmin && isLeaderRole(userRole);
+
+  // ── Projected dividend for the current user ──────────
+  const getMyProjectedDividend = () => {
+    if (!member || !term) return 0;
+    const intWei   = BigInt(term.interestCollected || 0);
+    if (intWei === 0n) return 0;
+    const divPool  = (intWei * 8000n) / 10000n;
+    const totalSav = allMembers.reduce((s, m) => s + (m.isActive ? BigInt(m.savings) : 0n), 0n);
+    if (totalSav === 0n) return 0;
+    const mySav = BigInt(member.savings);
+    return Number((divPool * mySav) / totalSav / WEI_PER_RWF);
+  };
+
+  // ── Dividend display: savings + dividend ─────────────
+  // Shows what the member will walk away with in total:
+  // savings + claimable dividends  (after distribution)
+  // savings + projected dividends  (before distribution)
+  // savings only                   (no interest collected yet)
+  const myPendingOnChain = member ? Number(BigInt(member.pendingDividends || 0) / WEI_PER_RWF) : 0;
+  const myProjected      = getMyProjectedDividend();
+  const mySavingsRwf     = member ? Number(BigInt(member.savings || 0) / WEI_PER_RWF) : 0;
+
+  const dividendDisplay = myPendingOnChain > 0
+    ? {
+        amount:    (mySavingsRwf + myPendingOnChain).toLocaleString(),
+        dividend:  myPendingOnChain.toLocaleString(),
+        label:     'Savings + Claimable dividends',
+        color:     'var(--green)',
+      }
+    : myProjected > 0
+    ? {
+        amount:    (mySavingsRwf + myProjected).toLocaleString(),
+        dividend:  myProjected.toLocaleString(),
+        label:     'Savings + Projected dividends',
+        color:     'var(--amber)',
+      }
+    : {
+        amount:    mySavingsRwf.toLocaleString(),
+        dividend:  '0',
+        label:     'Savings (no dividends yet)',
+        color:     'var(--amber)',
+      };
 
   // ── Dividend projections ──────────────────────────────
   const calcProjections = () => {
@@ -437,15 +504,15 @@ export default function App() {
     const divPool  = (intWei * 8000n) / 10000n;
     const totalSav = allMembers.reduce((s, m) => s + (m.isActive ? BigInt(m.savings) : 0n), 0n);
     return allMembers.map(m => {
-      const sw = BigInt(m.savings);
+      const sw  = BigInt(m.savings);
       const pct = totalSav > 0n && m.isActive ? Number((sw * 10000n) / totalSav) / 100 : 0;
       const div = totalSav > 0n && m.isActive ? (divPool * sw) / totalSav : 0n;
       return { ...m, savingsRwf: Number(sw / WEI_PER_RWF), percentage: pct, projectedDividend: Number(div / WEI_PER_RWF) };
     }).sort((a, b) => b.projectedDividend - a.projectedDividend);
   };
-  const projections      = calcProjections();
-  const totalSavingsRwf  = allMembers.reduce((s, m) => s + Number(BigInt(m.savings) / WEI_PER_RWF), 0);
-  const totalDivPoolRwf  = term ? Number((BigInt(term.interestCollected || 0) * 8000n) / 10000n / WEI_PER_RWF) : 0;
+  const projections     = calcProjections();
+  const totalSavingsRwf = allMembers.reduce((s, m) => s + Number(BigInt(m.savings) / WEI_PER_RWF), 0);
+  const totalDivPoolRwf = term ? Number((BigInt(term.interestCollected || 0) * 8000n) / 10000n / WEI_PER_RWF) : 0;
 
   const filteredMembers = allMembers.filter(m =>
     m.name.toLowerCase().includes(memberSearch.toLowerCase()) ||
@@ -496,37 +563,23 @@ export default function App() {
         {/* ── Sidebar ── */}
         <aside className="dashboard-sidebar">
           <nav className="sidebar-nav">
-            {/* Only registered active members can see activity pages */}
-            {(() => {
-              const canSeeActivity = !!member; 
-              if (!canSeeActivity) {
-                return (
-                  <SidebarLink href="#profile" active={currentPage==='profile'} onClick={()=>setCurrentPage('profile')}>
-                    👤 My Profile
-                  </SidebarLink>
-                );
-              }
-              return null;
-            })()}
-
-            <SidebarLink href="#profile"   active={currentPage==='profile'}   onClick={()=>setCurrentPage('profile')}>👤 My Profile</SidebarLink>
-            <SidebarLink href="#members"   active={currentPage==='members'}   onClick={()=>setCurrentPage('members')}>
+            <SidebarLink href="#profile"   active={currentPage==='profile'}   onClick={()=>navigateTo('profile')}>👤 My Profile</SidebarLink>
+            <SidebarLink href="#members"   active={currentPage==='members'}   onClick={()=>navigateTo('members')}>
               👥 Member Directory {allMembers.length > 0 && <span className="nav-badge">{allMembers.length}</span>}
             </SidebarLink>
-            <SidebarLink href="#savings"   active={currentPage==='savings'}   onClick={()=>setCurrentPage('savings')}>💰 Savings</SidebarLink>
-            <SidebarLink href="#loans"     active={currentPage==='loans'}     onClick={()=>setCurrentPage('loans')}>📈 Loans</SidebarLink>
-            <SidebarLink href="#dividends" active={currentPage==='dividends'} onClick={()=>setCurrentPage('dividends')}>📊 Dividends</SidebarLink>
+            <SidebarLink href="#savings"   active={currentPage==='savings'}   onClick={()=>navigateTo('savings')}>💰 Savings</SidebarLink>
+            <SidebarLink href="#loans"     active={currentPage==='loans'}     onClick={()=>navigateTo('loans')}>📈 Loans</SidebarLink>
+            <SidebarLink href="#dividends" active={currentPage==='dividends'} onClick={()=>navigateTo('dividends')}>📊 Dividends</SidebarLink>
 
-            {/* Loan Approvals — leaders only, NOT admin */}
             {showApprovalsLink && (
-              <SidebarLink href="#approvals" active={currentPage==='approvals'} onClick={()=>setCurrentPage('approvals')}>
+              <SidebarLink href="#approvals" active={currentPage==='approvals'} onClick={()=>navigateTo('approvals')}>
                 ✓ Loan Approvals
                 {pendingApprovals.length > 0 && <span className="nav-badge">{pendingApprovals.length}</span>}
               </SidebarLink>
             )}
 
             {(isAdmin || canRegisterMembers) && (
-              <SidebarLink href="#admin" active={currentPage==='admin'} onClick={()=>setCurrentPage('admin')}>⚙ Admin</SidebarLink>
+              <SidebarLink href="#admin" active={currentPage==='admin'} onClick={()=>navigateTo('admin')}>⚙ Admin</SidebarLink>
             )}
           </nav>
         </aside>
@@ -534,7 +587,7 @@ export default function App() {
         {/* ── Main ── */}
         <main className="dashboard-content">
 
-          {/* Profile */}
+          {/* ── Profile ── */}
           {currentPage === 'profile' && (
             <div className="page-section">
               <h1>My Profile</h1>
@@ -563,23 +616,30 @@ export default function App() {
                       </div>
                     </div>
                   </div>
+
                   <div className="exchange-rate-banner">
                     💱 Fixed Exchange Rate: 1 ETH = {ETH_RWF_RATE.toLocaleString()} RWF
                     <span className="rate-note">(Exact integer math — no rounding errors)</span>
                   </div>
+
                   <div className="stats-grid">
+                    {/* Savings card */}
                     <div className="stat-card" style={{'--accent-color':'var(--gold)'}}>
                       <div className="stat-label">My Savings</div>
                       <div className="stat-value gold">{getSavingsRwf()} RWF</div>
                       <div className="stat-sub">≈ {fmtETH(member.savings)} ETH</div>
                       <div className="stat-sub">Max loan: {getMaxLoanRwf()} RWF</div>
                     </div>
+
+                    {/* Pool card */}
                     <div className="stat-card" style={{'--accent-color':'var(--green)'}}>
                       <div className="stat-label">Total Pool</div>
                       <div className="stat-value green">{getTotalPoolRwf()} RWF</div>
                       <div className="stat-sub">≈ {totalPool} ETH</div>
                       <div className="stat-sub">Reserve: {getReserveRwf()} RWF</div>
                     </div>
+
+                    {/* Loan status card */}
                     <div className="stat-card" style={{'--accent-color':'var(--blue)'}}>
                       <div className="stat-label">Loan Status</div>
                       <div style={{marginTop:'0.4rem'}}>
@@ -590,10 +650,21 @@ export default function App() {
                       {loanStatusKey === 'active' && <div className="stat-sub">Due: {new Date(Number(loan.deadline)*1000).toLocaleDateString()}</div>}
                       {loanStatusKey === 'pending' && <div className="stat-sub">Awaiting 2 leader approvals</div>}
                     </div>
+
+                    {/* ── Dividend card — shows savings + dividend total ── */}
                     <div className="stat-card" style={{'--accent-color':'var(--amber)'}}>
-                      <div className="stat-label">Pending Dividends</div>
-                      <div className="stat-value amber">{getPendingDivRwf()} RWF</div>
-                      <div className="stat-sub">≈ {fmtETH(member.pendingDividends)} ETH</div>
+                      <div className="stat-label">Total at Term End</div>
+                      <div className="stat-value" style={{color: dividendDisplay.color}}>
+                        {dividendDisplay.amount} RWF
+                      </div>
+                      <div className="stat-sub" style={{fontWeight: 600, color: dividendDisplay.color}}>
+                        {dividendDisplay.label}
+                      </div>
+                      {dividendDisplay.dividend !== '0' && (
+                        <div className="stat-sub">
+                          Dividend portion: {dividendDisplay.dividend} RWF
+                        </div>
+                      )}
                       <div className="stat-sub">Members: {memberCount}</div>
                     </div>
                   </div>
@@ -607,7 +678,7 @@ export default function App() {
             </div>
           )}
 
-          {/* Member Directory */}
+          {/* ── Member Directory ── */}
           {currentPage === 'members' && (
             <div className="page-section">
               <div className="member-directory-header">
@@ -630,8 +701,8 @@ export default function App() {
               ) : allMembers.length === 0 ? (
                 <div className="empty-state">
                   <p>No members found.</p>
-              {(isAdmin || canRegisterMembers)
-                    ? <button className="btn-primary" onClick={()=>setCurrentPage('admin')} style={{marginTop:'1rem',width:'auto'}}>Go to Admin Panel</button>
+                  {(isAdmin || canRegisterMembers)
+                    ? <button className="btn-primary" onClick={()=>navigateTo('admin')} style={{marginTop:'1rem',width:'auto'}}>Go to Admin Panel</button>
                     : <p>Ask the admin to register members.</p>}
                 </div>
               ) : (
@@ -659,7 +730,7 @@ export default function App() {
             </div>
           )}
 
-          {/* Member Detail Modal */}
+          {/* ── Member Detail Modal ── */}
           {showMemberModal && selectedMember && (
             <div className="modal-overlay" onClick={()=>setShowMemberModal(false)}>
               <div className="modal-content" onClick={e=>e.stopPropagation()}>
@@ -716,7 +787,6 @@ export default function App() {
           {currentPage === 'approvals' && showApprovalsLink && (
             <div className="page-section">
               <h1>Loan Approvals</h1>
-
               <div className="approvals-info">
                 <div className="leader-info">
                   <span className="role-badge">{getUserRoleName()}</span>
@@ -727,7 +797,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* ✅ Self-loan notice — shown when the logged-in leader has a pending loan */}
               {pendingReqs.some(r => r.borrower?.toLowerCase() === account?.toLowerCase()) && (
                 <div className="alert alert-info" style={{marginBottom:'1rem'}}>
                   ℹ️ You have a pending loan request. The other leaders will review and approve it — you cannot approve your own loan.
@@ -736,7 +805,6 @@ export default function App() {
 
               <div className="pending-requests">
                 <h2>Requests You Can Approve ({pendingApprovals.length})</h2>
-
                 {pendingApprovals.length === 0 ? (
                   <div className="empty-state">
                     <p>✅ No pending requests for you to approve right now.</p>
@@ -787,7 +855,7 @@ export default function App() {
             </div>
           )}
 
-          {/* Savings */}
+          {/* ── Savings ── */}
           {currentPage === 'savings' && (
             <div className="page-section">
               <h1>Savings</h1>
@@ -806,34 +874,103 @@ export default function App() {
               <div className="actions-section">
                 <div className="action-card">
                   <h2>Add Savings</h2>
-                  <p className="card-desc">Minimum {minContribRwf.toLocaleString()} RWF.</p>
+                  <p className="card-desc">One deposit per day, available from 08:00 onwards.</p>
+                  {(() => {
+                    const now = new Date();
+                    const hour = now.getHours();
+                    const todayKey = now.toISOString().slice(0, 10);
+                    const storageKey = `ikimina_deposit_${account?.toLowerCase()}_${todayKey}`;
+                    const alreadyDeposited = !!localStorage.getItem(storageKey);
+                    const windowOpen = hour >= 8;
+
+                    if (alreadyDeposited) return (
+                      <div className="alert alert-success" style={{marginBottom:'0.75rem'}}>
+                        ✅ Deposit done for today. Next deposit available tomorrow after 08:00.
+                      </div>
+                    );
+                    if (!windowOpen) return (
+                      <div className="alert alert-info" style={{marginBottom:'0.75rem'}}>
+                        🕗 Deposit window opens at <strong>08:00</strong>. Current time: {now.toLocaleTimeString()}.
+                      </div>
+                    );
+                    return (
+                      <div className="alert alert-success" style={{marginBottom:'0.75rem'}}>
+                        🟢 Deposit window is open. You can make your deposit for today.
+                      </div>
+                    );
+                  })()}
                   <div className="input-group">
                     <label>Amount (RWF)</label>
-                    <input type="number" value={depositRwf} onChange={e=>setDepositRwf(e.target.value)} placeholder={`e.g. ${minContribRwf}`} min={minContribRwf} step="1000"/>
+                    <input type="number" value={depositRwf} onChange={e=>setDepositRwf(e.target.value)}
+                      placeholder={`e.g. ${minContribRwf}`} min={minContribRwf} step="1000"
+                      disabled={(() => {
+                        const now = new Date();
+                        const hour = now.getHours();
+                        const todayKey = now.toISOString().slice(0, 10);
+                        const storageKey = `ikimina_deposit_${account?.toLowerCase()}_${todayKey}`;
+                        return hour < 8 || !!localStorage.getItem(storageKey);
+                      })()}
+                    />
                   </div>
                   {depositRwf > 0 && <div className="eth-equivalent">≈ {rwfToEthStr(depositRwf)} ETH</div>}
-                  <button className="btn-full" onClick={handleContribute} disabled={loading||!depositRwf}>
-                    {loading?<span className="spinner">⟳</span>:`Deposit ${depositRwf?parseFloat(depositRwf).toLocaleString():''} RWF`}
+                  <button className="btn-full" onClick={handleContribute}
+                    disabled={loading || !depositRwf || (() => {
+                      const now = new Date();
+                      const hour = now.getHours();
+                      const todayKey = now.toISOString().slice(0, 10);
+                      const storageKey = `ikimina_deposit_${account?.toLowerCase()}_${todayKey}`;
+                      return hour < 8 || !!localStorage.getItem(storageKey);
+                    })()}>
+                    {(() => {
+                      const now = new Date();
+                      const hour = now.getHours();
+                      const todayKey = now.toISOString().slice(0, 10);
+                      const storageKey = `ikimina_deposit_${account?.toLowerCase()}_${todayKey}`;
+                      if (!!localStorage.getItem(storageKey)) return '✅ Already deposited today';
+                      if (hour < 8) return '🕗 Opens at 08:00';
+                      if (loading) return <span className="spinner">⟳</span>;
+                      return `Deposit ${depositRwf ? parseFloat(depositRwf).toLocaleString() : ''} RWF`;
+                    })()}
                   </button>
                 </div>
                 <div className="action-card">
                   <h2>Withdraw Savings</h2>
-                  <p className="card-desc">Requires no active loan.</p>
+                  <p className="card-desc">Withdrawals are allowed only after the current term ends.</p>
+                  {term && (() => {
+                    const now = Math.floor(Date.now() / 1000);
+                    const termEnded = now >= Number(term.endTime);
+                    const endDate = new Date(Number(term.endTime) * 1000).toLocaleDateString();
+                    return !termEnded ? (
+                      <div className="alert alert-info" style={{marginBottom:'0.75rem'}}>
+                        🔒 Locked until term ends on <strong>{endDate}</strong> ({termPct}% complete)
+                      </div>
+                    ) : (
+                      <div className="alert alert-success" style={{marginBottom:'0.75rem'}}>
+                        ✅ Term has ended — withdrawals are now open
+                      </div>
+                    );
+                  })()}
                   <div className="input-group">
                     <label>Amount (RWF)</label>
-                    <input type="number" value={withdrawRwf} onChange={e=>setWithdrawRwf(e.target.value)} placeholder="e.g. 25000" step="1000"/>
+                    <input type="number" value={withdrawRwf} onChange={e=>setWithdrawRwf(e.target.value)} placeholder="e.g. 25000" step="1000"
+                      disabled={!term || Math.floor(Date.now() / 1000) < Number(term?.endTime)}/>
                   </div>
                   {withdrawRwf > 0 && <div className="eth-equivalent">≈ {rwfToEthStr(withdrawRwf)} ETH</div>}
                   <div className="available-balance">Available: {getSavingsRwf()} RWF</div>
-                  <button className="btn-danger" onClick={handleWithdraw} disabled={loading||!withdrawRwf||loanStatusKey==='active'}>
-                    {loanStatusKey==='active'?'Repay loan first':loading?<span className="spinner">⟳</span>:'Withdraw'}
+                  <button className="btn-danger" onClick={handleWithdraw}
+                    disabled={loading || !withdrawRwf || loanStatusKey==='active' || !term || Math.floor(Date.now() / 1000) < Number(term?.endTime)}>
+                    {!term || Math.floor(Date.now() / 1000) < Number(term?.endTime)
+                      ? `🔒 Locked until ${term ? new Date(Number(term.endTime)*1000).toLocaleDateString() : '—'}`
+                      : loanStatusKey==='active' ? 'Repay loan first'
+                      : loading ? <span className="spinner">⟳</span>
+                      : 'Withdraw'}
                   </button>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Loans */}
+          {/* ── Loans ── */}
           {currentPage === 'loans' && (
             <div className="page-section">
               <h1>Loans</h1>
@@ -881,7 +1018,7 @@ export default function App() {
             </div>
           )}
 
-          {/* Dividends */}
+          {/* ── Dividends ── */}
           {currentPage === 'dividends' && member && (
             <div className="page-section">
               <h1>Dividends</h1>
@@ -890,12 +1027,28 @@ export default function App() {
                   <h2>Your Dividends</h2>
                   <p className="card-desc">80% of term interest, distributed pro-rata by savings.</p>
                   <div className="loan-info">
-                    <div className="loan-info-row"><span>Pending</span><span style={{color:'var(--amber)'}}>{getPendingDivRwf()} RWF</span></div>
+                    <div className="loan-info-row">
+                      <span>Total at Term End</span>
+                      <span style={{color: dividendDisplay.color, fontWeight: 700}}>
+                        {dividendDisplay.amount} RWF
+                      </span>
+                    </div>
+                    <div className="loan-info-row">
+                      <span style={{fontSize:'0.8rem', color:'var(--text-muted)'}}>
+                        {dividendDisplay.label}
+                      </span>
+                    </div>
+                    {dividendDisplay.dividend !== '0' && (
+                      <div className="loan-info-row">
+                        <span>Dividend portion</span>
+                        <span style={{color: dividendDisplay.color}}>{dividendDisplay.dividend} RWF</span>
+                      </div>
+                    )}
                     <div className="loan-info-row"><span>Your Savings</span><span>{getSavingsRwf()} RWF</span></div>
-                    <div className="loan-info-row"><span>Term Interest</span><span>{term?fmtRWFDisplay(term.interestCollected):'—'} RWF</span></div>
+                    <div className="loan-info-row"><span>Term Interest</span><span>{term ? fmtRWFDisplay(term.interestCollected) : '—'} RWF</span></div>
                   </div>
                   <button className="btn-full" onClick={handleClaimDividends} disabled={loading||!hasDividends}>
-                    {!hasDividends?'No Dividends':loading?<span className="spinner">⟳</span>:'Claim Dividends'}
+                    {!hasDividends ? 'No Dividends' : loading ? <span className="spinner">⟳</span> : 'Claim Dividends'}
                   </button>
                 </div>
                 <div className="action-card">
@@ -966,7 +1119,7 @@ export default function App() {
             </div>
           )}
 
-          {/* Admin */}
+          {/* ── Admin ── */}
           {currentPage === 'admin' && canRegisterMembers && (
             <div className="page-section">
               <h1>Admin Panel</h1>
@@ -1034,7 +1187,7 @@ export default function App() {
         </main>
       </div>
 
-      {/* Footer */}
+      {/* ── Footer ── */}
       <footer className="dashboard-footer">
         <div className="footer-content">
           <span>Contract: {shortAddr(CONTRACT_ADDRESS)}</span>
